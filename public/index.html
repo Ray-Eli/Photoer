@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photoer</title>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Photoer</h1>
+
+        <!-- 注册表单 -->
+        <div class="form-box">
+            <h2>注册</h2>
+            <input type="text" id="registerUsername" placeholder="用户名">
+            <input type="password" id="registerPassword" placeholder="密码">
+            <button onclick="handleRegister()">注册</button>
+            <p id="registerMessage"></p>
+        </div>
+
+        <!-- 登录表单 -->
+        <div class="form-box">
+            <h2>登录</h2>
+            <input type="text" id="loginUsername" placeholder="用户名">
+            <input type="password" id="loginPassword" placeholder="密码">
+            <button onclick="handleLogin()">登录</button>
+            <p id="loginMessage"></p>
+        </div>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+
+</html>
