@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3000/api/auth';
+const API_BASE = '/api/auth';
 
 async function handleRegister() {
     const username = document.getElementById('registerUsername').value;
