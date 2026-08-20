@@ -1,8 +1,8 @@
 {
-  "name": "demo",
+  "name": "photoer",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "摄影分享平台 - 分享日常瞬间与拍摄地点推荐",
+  "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "start:test": "cross-env NODE_ENV=test node src/index.js",
