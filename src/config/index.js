@@ -32,6 +32,10 @@ module.exports = {
     deleteCooldownDays: 30,
   },
 
+  cookie: {
+    name: 'sid',
+  },
+
   rateLimit: {
     login:    { windowMin: 15, max: 30 },
     register: { windowMin: 15, max: 20 },
