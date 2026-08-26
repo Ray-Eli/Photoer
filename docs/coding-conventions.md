@@ -26,6 +26,7 @@
 | `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）或跨领域的基础能力（Session、限流、发邮件、验证码） | 裸名词，不带角色后缀 | `db.js`、`redis.js`、`session.js`、`mailer.js`、`captcha.js`、`rateLimit.js` |
 | `src/utils/` | 不依赖外部基础设施的纯函数（ID 生成、格式校验） | 裸名词，不带角色后缀 | `id.js`、`validator.js` |
 | `src/config/` | 配置加载与业务规则常量 | 裸名词；`index.js` 作为聚合入口 | `env.js`、`index.js` |
+| `src/scripts/` | 独立运维脚本（命令行或定时任务启动，不经过 HTTP 路由） | 裸名词，不带角色后缀 | `migrate.js` |
 | `src/` 根目录 | 应用入口 | `index.js`（Node/Express 惯例，对应 `package.json` 的 `main` 字段） | `index.js` |
 
 ### 2.2 `lib/` 与 `utils/` 的区分标准
@@ -38,11 +39,9 @@
 
 统一小写，多单词用 camelCase（如 `rateLimit.js`），角色后缀用英文句点分隔（如 `auth.route.js`）。后端文件不对应 UI 组件，不使用 PascalCase。
 
-### 2.4 现状中需要你决策的地方（待整理）
+### 2.4 独立运维脚本
 
-- **`src/migrate.js`**：这是唯一一个直接放在 `src/` 根目录、且不属于上述任何角色分类的文件——它是一个可以独立执行的脚本（`node src/migrate.js`），不是被其他模块 `require` 的库。现状里只有它一个这样的文件，没有可比对的同类样本。有两种处理方式，需要你决定：
-  - **方案 A**：保留在 `src/` 根目录，视为跟 `index.js` 同级的"入口脚本"（这次的默认建议，理由是它目前唯一，单独建目录收益不大）
-  - **方案 B**：新建 `src/scripts/` 目录，移动为 `src/scripts/migrate.js`，为将来可能出现的其他运维脚本（比如账号注销的 30 天清理任务，`decisions.md` ADR-008 提到过）预留位置
+独立运维脚本（不经过 HTTP 路由触发，靠命令行或定时任务启动，如 `migrate.js`）统一存放于 `src/scripts/` 目录，与 `routes/`/`services/` 等按 HTTP 请求生命周期组织的角色目录区分开。命名同其他角色一样是裸名词，不带角色后缀（如 `migrate.js`）。这个目录也是将来其他运维脚本（比如账号注销的 30 天清理任务，`decisions.md` ADR-008 提到过）的存放位置。
 
 ---
 
@@ -86,13 +85,11 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 
 多单词路由用 kebab-case，与 URL 本身保持一致：`forgot-password/`。这不是我们发明的规则，是 URL 规范本身的要求（URL 里不适合用驼峰或下划线）。
 
-### 3.4 现状中需要你决策的地方（待整理）
+### 3.4 命名一致性核对
 
-- **路由同级表单文件的命名逻辑目前不统一**：`forgot-password/request-form.js`、`forgot-password/verify/verify-form.js`、`forgot-password/reset/reset-form.js`、`register/verify/verify-form.js` 这四个文件都是"按该文件在流程里的角色命名"（request / verify / reset），但 `register/register-form.js` 是"按父级目录的领域名命名"，两种逻辑混在了一起。
+路由同级表单文件统一按"该文件在流程里的角色"命名：`forgot-password/request-form.js`、`forgot-password/verify/verify-form.js`、`forgot-password/reset/reset-form.js`、`register/verify/verify-form.js`、`register/request-form.js`（原名 `register-form.js`，已按角色命名对齐，因为它和 `forgot-password/request-form.js` 都是"发起流程的第一步"）。
 
-  推荐做法：**统一按角色命名**，把 `register/register-form.js` 改成 `register/request-form.js`（跟 `forgot-password/request-form.js` 的命名逻辑对齐，因为两者都是"发起流程的第一步"）。`login/login-form.js` 不受影响——登录不是多步骤流程，只有一个表单文件，用领域名本身也说得通，不存在"跟兄弟文件角色混淆"的问题，可以保留。
-
-  这一条是我的推荐，不是唯一答案，最终怎么定你来判断。
+`login/login-form.js` 是例外：登录不是多步骤流程，只有一个表单文件，不存在跟兄弟文件角色混淆的问题，用领域名命名。
 
 ---
 
@@ -106,7 +103,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 {14位时间戳}_{描述性名称}.{up|down}.sql
 ```
 
-- **时间戳**：`YYYYMMDDHHMMSS`，14 位定长数字。用定长数字前缀是因为 `src/migrate.js` 靠文件名做字典序排序来决定执行顺序（`getAllMigrations()` 里的 `.sort()`），定长数字保证字典序等于时间顺序，不会出现 `9_x` 排在 `10_x` 后面这种问题
+- **时间戳**：`YYYYMMDDHHMMSS`，14 位定长数字。用定长数字前缀是因为 `src/scripts/migrate.js` 靠文件名做字典序排序来决定执行顺序（`getAllMigrations()` 里的 `.sort()`），定长数字保证字典序等于时间顺序，不会出现 `9_x` 排在 `10_x` 后面这种问题
 - **描述性名称**：snake_case，动词开头，说明这次迁移做了什么，如 `create_users`、`create_user_identities`
 - **up/down 成对出现**：每次迁移必须同时提供 `.up.sql`（执行）和 `.down.sql`（回滚），`migrate.js` 的 `rollback()` 靠同名 `.down.sql` 文件做回滚，缺一个就无法回滚
 
@@ -120,7 +117,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 
 ## 五、现有文件对照表
 
-左边是当前路径，右边是按上述规范应该改成的路径。**没有变化的文件也列出来，方便你确认"这个文件是本来就合规，还是被漏检查了"**。这一步只是列出来，还没有真的改动任何文件。
+全部文件当前路径与上述规范的核对结果，包括本来就合规、以及已按规范调整过的文件。
 
 ### 后端（`src/`）
 
@@ -141,7 +138,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/services/auth.service.js` | 不变 | |
 | `src/utils/id.js` | 不变 | |
 | `src/utils/validator.js` | 不变 | |
-| `src/migrate.js` | 不变，**或** `src/scripts/migrate.js` | 待你在 2.4 里选方案 A 还是 B |
+| `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动 |
 
 ### 前端（`web/src/`）
 
@@ -154,7 +151,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/app/login/page.js` | 不变 | 框架强制 |
 | `web/src/app/login/login-form.js` | 不变 | 单步骤流程，领域名命名可保留 |
 | `web/src/app/register/page.js` | 不变 | 框架强制 |
-| `web/src/app/register/register-form.js` | `web/src/app/register/request-form.js` | 见 3.4，按角色命名对齐 |
+| `web/src/app/register/request-form.js` | 不变 | 原路径 `register-form.js`，已按 3.4 改名 |
 | `web/src/app/register/verify/page.js` | 不变 | 框架强制 |
 | `web/src/app/register/verify/verify-form.js` | 不变 | |
 | `web/src/app/forgot-password/page.js` | 不变 | 框架强制 |
@@ -168,4 +165,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 16 个文件，1 个需要你决策（`migrate.js` 归属）；前端 19 个文件，1 个建议改名（`register-form.js` → `request-form.js`）。其余全部已经符合规范，不需要动。
+**总结**：后端 16 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`。
