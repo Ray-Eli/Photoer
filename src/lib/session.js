@@ -1,5 +1,5 @@
 const redis = require('./redis');
-const { generateToken } = require('../utils/id');
+const { generateToken, generatePublicId } = require('../utils/id');
 const config = require('../config');
 
 const SESSION_PREFIX = 'session:';
@@ -21,11 +21,14 @@ function idleTtlSeconds(remember) {
 
 async function createSession(userId, { remember = false, deviceType = '', browser = '', ip = '' } = {}) {
   const sessionId = generateToken();
+  // 给前端展示/操作用的标识，跟真实 sessionId 是两个独立的值，泄露了也不能当登录凭证用
+  const ref = generatePublicId();
   const now = new Date().toISOString();
   const ttl = idleTtlSeconds(remember);
 
   await redis.hset(sessionKey(sessionId), {
     userId: String(userId),
+    ref,
     deviceType,
     browser,
     ip,
@@ -63,6 +66,24 @@ async function destroySession(sessionId) {
   }
 }
 
+// 该用户当前所有有效 Session（含真实 sessionId，调用方自己决定要不要往外暴露）
+// 顺带清理 user_sessions 集合里已经过期、查不到对应 Hash 的引用（惰性清理）
+async function getValidSessions(userId) {
+  const ids = await redis.smembers(userSessionsKey(userId));
+  const results = [];
+
+  for (const sessionId of ids) {
+    const data = await getSession(sessionId);
+    if (!data) {
+      await redis.srem(userSessionsKey(userId), sessionId);
+      continue;
+    }
+    results.push({ sessionId, ...data });
+  }
+
+  return results;
+}
+
 // 强制下线该用户所有设备（改密码、封禁、注销时用）
 async function destroyAllSessions(userId) {
   const ids = await redis.smembers(userSessionsKey(userId));
@@ -78,4 +99,5 @@ module.exports = {
   touchSession,
   destroySession,
   destroyAllSessions,
+  getValidSessions,
 };

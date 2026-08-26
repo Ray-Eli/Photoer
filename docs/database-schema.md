@@ -209,7 +209,7 @@ flowchart TD
 
 | Key 模式 | 类型 | 内容 | 过期 |
 |---|---|---|---|
-| `session:{sessionId}` | Hash | userId, deviceType, browser, ip, createdAt, lastActiveAt, remember | 按闲置超时 |
+| `session:{sessionId}` | Hash | userId, ref, deviceType, browser, ip, createdAt, lastActiveAt, remember | 按闲置超时 |
 | `user_sessions:{userId}` | Set | 该用户所有 sessionId | 无 |
 | `registration:{token}` | Hash | email, nickname, passwordHash, code, attempts | 10 分钟 |
 | `login_code:{token}` | Hash | email, code, attempts | 5 分钟 |
@@ -226,6 +226,7 @@ flowchart TD
 - 注册中间态存 Redis 而非 MySQL，因为有自动过期需求，且未完成的注册不应污染主表
 - 密码在存入 Redis 前已完成 bcrypt 加密，不以明文形式存在于任何位置
 - `user_sessions` 集合用于"删除该用户所有 Session"（封禁、改密码、注销时）
+- `session` Hash 里的 `ref` 是 NanoID，专门给前端展示/操作用（设备管理列表），跟真实 sessionId 相互独立，`ref` 不能当登录凭证使用，参见 auth-design.md 4.2
 - `email_cooldown`/`email_send` 按 `scope` 隔离，注册、验证码登录、忘记密码互不影响发送冷却和每小时上限，避免同一邮箱刚发过一种验证码就把另一种流程也卡住
 
 ## 五、设计说明

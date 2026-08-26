@@ -1,4 +1,5 @@
 const express = require('express');
+const { UAParser } = require('ua-parser-js');
 const authService = require('../services/auth.service');
 const validator = require('../utils/validator');
 const config = require('../config');
@@ -29,11 +30,15 @@ async function captchaMiddleware(req, res, next) {
   next();
 }
 
+// 用 ua-parser-js 解析 User-Agent，不手写正则猜设备类型
 function requestMeta(req) {
+  const ua = req.headers['user-agent'] || '';
+  const { device, browser } = new UAParser(ua).getResult();
+
   return {
     ip: req.ip,
-    deviceType: req.headers['user-agent'] || '',
-    browser: '',
+    deviceType: device.type || 'desktop', // ua-parser-js 对桌面端不返回 type 字段，默认按 desktop 处理
+    browser: [browser.name, browser.version].filter(Boolean).join(' '),
   };
 }
 
@@ -234,6 +239,27 @@ router.get('/me', requireAuth, async (req, res) => {
     return res.status(401).json({ error: '请先登录' });
   }
   res.json({ user: authService.serializeUser(user) });
+});
+
+router.get('/sessions', requireAuth, async (req, res) => {
+  const sessions = await authService.listSessions(req.user.id, req.sessionId);
+  res.json({ sessions });
+});
+
+router.delete('/sessions/:ref', requireAuth, async (req, res) => {
+  try {
+    await authService.revokeSession(req.user.id, req.params.ref, req.sessionId);
+    res.json({ message: '已下线该设备' });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.code === 'CURRENT_DEVICE') {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ error: '操作失败，请稍后重试' });
+  }
 });
 
 module.exports = router;

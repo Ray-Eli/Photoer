@@ -222,6 +222,16 @@ Session 中记录：设备类型、浏览器、IP、登录时间、最后活动�
 
 用户可在设置中查看登录设备列表（标记当前设备），可单独下线某设备。
 
+**对外标识与真实凭证分离**：Session 除了真实的 sessionId（只存在于 HttpOnly Cookie 和 Redis key 里，绝不返回给前端）之外，还会生成一个独立的 `ref`（NanoID）。设备列表接口只返回 `ref`，前端拿 `ref` 标识和操作某条会话；`ref` 泄露了也不能当登录凭证使用，跟真实 sessionId 是两个完全独立的值。
+
+**惰性清理**：`user_sessions:{userId}` 这个 Set 会因为 Session 自然过期（Redis TTL 到期）而出现"集合里有 sessionId，但对应的 `session:{sessionId}` 已经不存在"的情况。查询设备列表时，遇到这种情况会顺手把该 sessionId 从集合里移除，不等定时任务，也不会出现在返回结果里。
+
+**当前设备不可通过设备管理下线**：下线操作会检查目标是否是发起请求本身所在的那个 Session，如果是，拒绝操作并提示改用登出功能——下线当前设备和登出是同一件事，不应该有两条不同的路径做同一件事。
+
+**接口**：
+- `GET /api/auth/sessions`：返回当前用户所有有效 Session（`ref`/`deviceType`/`browser`/`ip`/`createdAt`/`lastActiveAt`/`isCurrent`）
+- `DELETE /api/auth/sessions/:ref`：下线指定设备。找不到匹配的 `ref`（已过期、伪造、或不属于当前用户）统一提示"该设备不存在或已下线"，不区分具体原因，遵循"统一错误提示，不泄露信息"的安全原则（design-principles.md 1.1）
+
 ### 4.3 强制下线场景
 
 - 用户主动登出（当前设备）
