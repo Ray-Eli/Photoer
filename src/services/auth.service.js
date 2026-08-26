@@ -9,6 +9,8 @@ const sessionLib = require('../lib/session');
 
 const REGISTRATION_PREFIX = 'registration:';
 const REGISTRATION_EMAIL_PREFIX = 'registration_email:';
+const LOGIN_CODE_PREFIX = 'login_code:';
+const RESET_PWD_PREFIX = 'reset_pwd:';
 
 function genCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -38,6 +40,58 @@ async function canSendEmail(email, { cooldownSec, maxPerHour }) {
 
   await redis.set(cooldownKey, '1', 'EX', cooldownSec);
   return true;
+}
+
+// 生成验证码并存入 Redis，返回 token 和明文验证码（调用方负责发邮件）
+async function issueVerificationCode(prefix, ttlSec, data) {
+  const token = generateToken();
+  const code = genCode();
+
+  await redis.hset(`${prefix}${token}`, { ...data, code, attempts: '0' });
+  await redis.expire(`${prefix}${token}`, ttlSec);
+
+  return { token, code };
+}
+
+// 校验验证码：处理"已过期"、"尝试次数超限"、"验证码错误"三种失败，成功则返回存储的数据
+// 不在这里做成功后的清理（删除 key / 标记已验证），因为不同流程对"验证成功后"的处理不一样，交给调用方
+async function consumeVerificationCode(prefix, token, code, maxAttempts) {
+  const key = `${prefix}${token}`;
+  const data = await redis.hgetall(key);
+
+  if (!data || !data.code) {
+    const err = new Error('验证码已过期，请重新获取');
+    err.code = 'EXPIRED';
+    throw err;
+  }
+
+  const attempts = Number(data.attempts || 0);
+  if (attempts >= maxAttempts) {
+    await redis.del(key);
+    const err = new Error('验证码错误次数过多，请重新获取');
+    err.code = 'TOO_MANY_ATTEMPTS';
+    throw err;
+  }
+
+  if (data.code !== code) {
+    await redis.hincrby(key, 'attempts', 1);
+    const err = new Error('验证码错误');
+    err.code = 'INVALID_CODE';
+    throw err;
+  }
+
+  return data;
+}
+
+// 密码/验证码登录通用状态判断（design-principles.md 1.1 例外：验证通过后可以明确告知封禁/注销状态）
+function checkAccountStatus(user) {
+  if (user.status === 'banned') {
+    return { ok: false, reason: 'BANNED', banReason: user.ban_reason };
+  }
+  if (user.status === 'deleted') {
+    return { ok: false, reason: 'DELETED' };
+  }
+  return { ok: true };
 }
 
 async function generateUniqueUsername() {
@@ -203,17 +257,169 @@ async function login({ account, password, remember }, meta) {
     return { ok: false, reason: 'INVALID_CREDENTIALS' };
   }
 
-  // 密码验证通过后才能明确告知封禁/注销状态（design-principles.md 1.1 例外条款）
-  if (user.status === 'banned') {
-    return { ok: false, reason: 'BANNED', banReason: user.ban_reason };
-  }
-  if (user.status === 'deleted') {
-    return { ok: false, reason: 'DELETED' };
-  }
+  const statusCheck = checkAccountStatus(user);
+  if (!statusCheck.ok) return statusCheck;
 
   const { sessionId, ttl } = await sessionLib.createSession(user.id, { ...meta, remember: !!remember });
 
   return { ok: true, sessionId, ttl, user: serializeUser(user) };
+}
+
+// 验证码登录第一步：发验证码，账号不存在时页面表现一致，邮件内容不同（design-principles.md 1.1）
+async function startLoginCode({ email }) {
+  const { expireMin, cooldownSec, maxPerHour } = config.verification.login;
+
+  const canSend = await canSendEmail(email, { cooldownSec, maxPerHour });
+  if (!canSend) {
+    const err = new Error('发送过于频繁，请稍后重试');
+    err.code = 'RATE_LIMITED';
+    throw err;
+  }
+
+  const identity = await findIdentity('email', email);
+
+  if (!identity) {
+    await issueVerificationCode(LOGIN_CODE_PREFIX, expireMin * 60, { email, exists: '0' });
+    await sendMail({
+      to: email,
+      subject: '登录提醒',
+      text: '该邮箱尚未注册 Photoer，如果不是你本人操作，请忽略此邮件。',
+    });
+    // 不存在的邮箱也要返回一个 token，行为跟正常流程保持一致
+    return { token: generateToken() };
+  }
+
+  const { token, code } = await issueVerificationCode(LOGIN_CODE_PREFIX, expireMin * 60, {
+    email,
+    exists: '1',
+    userId: String(identity.user_id),
+  });
+
+  await sendMail({
+    to: email,
+    subject: 'Photoer 登录验证码',
+    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
+  });
+
+  return { token };
+}
+
+// 验证码登录第二步：校验通过直接登录，跳过密码
+async function verifyLoginCode({ token, code }, meta) {
+  const { maxAttempts } = config.verification.login;
+  const data = await consumeVerificationCode(LOGIN_CODE_PREFIX, token, code, maxAttempts);
+
+  await redis.del(`${LOGIN_CODE_PREFIX}${token}`);
+
+  if (data.exists !== '1') {
+    const err = new Error('验证码错误');
+    err.code = 'INVALID_CODE';
+    throw err;
+  }
+
+  const user = await findUserById(Number(data.userId));
+  if (!user) {
+    const err = new Error('验证码错误');
+    err.code = 'INVALID_CODE';
+    throw err;
+  }
+
+  const statusCheck = checkAccountStatus(user);
+  if (!statusCheck.ok) return statusCheck;
+
+  const { sessionId, ttl } = await sessionLib.createSession(user.id, meta);
+
+  return { ok: true, sessionId, ttl, user: serializeUser(user) };
+}
+
+// 忘记密码第一步：发验证码，逻辑跟验证码登录一样，账号不存在时页面表现一致
+async function startForgotPassword({ email }) {
+  const { expireMin, cooldownSec, maxPerHour } = config.verification.resetPassword;
+
+  const canSend = await canSendEmail(email, { cooldownSec, maxPerHour });
+  if (!canSend) {
+    const err = new Error('发送过于频繁，请稍后重试');
+    err.code = 'RATE_LIMITED';
+    throw err;
+  }
+
+  const identity = await findIdentity('email', email);
+
+  if (!identity) {
+    await issueVerificationCode(RESET_PWD_PREFIX, expireMin * 60, { email, exists: '0' });
+    await sendMail({
+      to: email,
+      subject: '重置密码提醒',
+      text: '该邮箱尚未在 Photoer 注册，如果不是你本人操作，请忽略此邮件。',
+    });
+    return { token: generateToken() };
+  }
+
+  const { token, code } = await issueVerificationCode(RESET_PWD_PREFIX, expireMin * 60, {
+    email,
+    exists: '1',
+    userId: String(identity.user_id),
+  });
+
+  await sendMail({
+    to: email,
+    subject: 'Photoer 重置密码验证码',
+    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
+  });
+
+  return { token };
+}
+
+// 忘记密码第二步：只校验验证码，不改密码，跟注册/登录验证码不同，这里验证通过后还要走第三步才真正改密码
+async function verifyForgotPassword({ token, code }) {
+  const { maxAttempts } = config.verification.resetPassword;
+  const data = await consumeVerificationCode(RESET_PWD_PREFIX, token, code, maxAttempts);
+
+  if (data.exists !== '1') {
+    const err = new Error('验证码错误');
+    err.code = 'INVALID_CODE';
+    throw err;
+  }
+
+  await redis.hset(`${RESET_PWD_PREFIX}${token}`, 'verified', '1');
+
+  return { token };
+}
+
+// 忘记密码第三步：设置新密码，要求上一步已经验证过；改密码后踢掉所有设备、自动登录（ADR-003 强制下线场景）
+async function resetPassword({ token, newPassword }, meta) {
+  const key = `${RESET_PWD_PREFIX}${token}`;
+  const data = await redis.hgetall(key);
+
+  if (!data || data.verified !== '1') {
+    const err = new Error('请先完成验证码校验');
+    err.code = 'NOT_VERIFIED';
+    throw err;
+  }
+
+  const user = await findUserById(Number(data.userId));
+  if (!user) {
+    const err = new Error('操作已过期，请重新发起');
+    err.code = 'EXPIRED';
+    throw err;
+  }
+
+  const isSameAsOld = await bcrypt.compare(newPassword, user.password_hash);
+  if (isSameAsOld) {
+    const err = new Error('新密码不能与旧密码相同');
+    err.code = 'SAME_PASSWORD';
+    throw err;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await pool.query('UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [passwordHash, user.id]);
+
+  await redis.del(key);
+  await sessionLib.destroyAllSessions(user.id);
+
+  const { sessionId, ttl } = await sessionLib.createSession(user.id, meta);
+
+  return { sessionId, ttl, user: serializeUser(user) };
 }
 
 async function logout(sessionId) {
@@ -233,6 +439,11 @@ module.exports = {
   startRegister,
   verifyRegister,
   login,
+  startLoginCode,
+  verifyLoginCode,
+  startForgotPassword,
+  verifyForgotPassword,
+  resetPassword,
   logout,
   findUserById,
   serializeUser,
