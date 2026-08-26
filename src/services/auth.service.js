@@ -30,12 +30,13 @@ async function findUserById(id) {
 }
 
 // 发送冷却 + 每小时上限，两个条件都过才允许发送
-async function canSendEmail(email, { cooldownSec, maxPerHour }) {
-  const cooldownKey = `email_cooldown:${email}`;
+// key 按 scope（register/login/reset）隔离，避免注册刚发过验证码，紧接着用忘记密码就被跨场景卡冷却
+async function canSendEmail(email, scope, { cooldownSec, maxPerHour }) {
+  const cooldownKey = `email_cooldown:${scope}:${email}`;
   const onCooldown = await redis.exists(cooldownKey);
   if (onCooldown) return false;
 
-  const withinHourLimit = await checkAndIncr(`email_send:${email}`, 3600, maxPerHour);
+  const withinHourLimit = await checkAndIncr(`email_send:${scope}:${email}`, 3600, maxPerHour);
   if (!withinHourLimit) return false;
 
   await redis.set(cooldownKey, '1', 'EX', cooldownSec);
@@ -108,7 +109,7 @@ async function startRegister({ email, nickname, password }) {
   const { expireMin } = config.verification.register;
   const identity = await findIdentity('email', email);
 
-  const canSend = await canSendEmail(email, config.verification.register);
+  const canSend = await canSendEmail(email, 'register', config.verification.register);
   if (!canSend) {
     const err = new Error('发送过于频繁，请稍后重试');
     err.code = 'RATE_LIMITED';
@@ -269,7 +270,7 @@ async function login({ account, password, remember }, meta) {
 async function startLoginCode({ email }) {
   const { expireMin, cooldownSec, maxPerHour } = config.verification.login;
 
-  const canSend = await canSendEmail(email, { cooldownSec, maxPerHour });
+  const canSend = await canSendEmail(email, 'login', { cooldownSec, maxPerHour });
   if (!canSend) {
     const err = new Error('发送过于频繁，请稍后重试');
     err.code = 'RATE_LIMITED';
@@ -336,7 +337,7 @@ async function verifyLoginCode({ token, code }, meta) {
 async function startForgotPassword({ email }) {
   const { expireMin, cooldownSec, maxPerHour } = config.verification.resetPassword;
 
-  const canSend = await canSendEmail(email, { cooldownSec, maxPerHour });
+  const canSend = await canSendEmail(email, 'reset', { cooldownSec, maxPerHour });
   if (!canSend) {
     const err = new Error('发送过于频繁，请稍后重试');
     err.code = 'RATE_LIMITED';

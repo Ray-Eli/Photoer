@@ -217,7 +217,8 @@ flowchart TD
 | `change_email:{token}` | Hash | userId, newEmail, code, attempts | 5 分钟 |
 | `ratelimit:login:{ip}` | String | 计数 | 15 分钟 |
 | `ratelimit:register:{ip}` | String | 计数 | 15 分钟 |
-| `email_send:{email}` | String | 发送次数 | 1 小时 |
+| `email_cooldown:{scope}:{email}` | String | 单封邮件重发冷却标记，`scope` 为 `register`/`login`/`reset` | 按各流程 cooldownSec 配置 |
+| `email_send:{scope}:{email}` | String | 该邮箱在该场景下的发送次数 | 1 小时 |
 | `user:{userId}:last_active` | String | 时间戳 | 无 |
 
 **说明**
@@ -225,6 +226,7 @@ flowchart TD
 - 注册中间态存 Redis 而非 MySQL，因为有自动过期需求，且未完成的注册不应污染主表
 - 密码在存入 Redis 前已完成 bcrypt 加密，不以明文形式存在于任何位置
 - `user_sessions` 集合用于"删除该用户所有 Session"（封禁、改密码、注销时）
+- `email_cooldown`/`email_send` 按 `scope` 隔离，注册、验证码登录、忘记密码互不影响发送冷却和每小时上限，避免同一邮箱刚发过一种验证码就把另一种流程也卡住
 
 ## 五、设计说明
 
