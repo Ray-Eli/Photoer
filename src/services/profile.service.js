@@ -1,9 +1,6 @@
 const pool = require('../lib/db');
 const config = require('../config');
-// findUserById 是 auth.service.js 和 profile.service.js 共用的函数，拆分时没有复制一份，
-// 而是从 auth.service.js 引入——这是临时处理，不是最终方案，已经在拆分汇报里跟用户说明，等待决定
-// 要不要挪到 src/lib/ 或 src/utils/ 下面去
-const { findUserById } = require('./auth.service');
+const { findUserById } = require('../lib/userRepository');
 
 // 用户名可用性判断，严格对应 database-schema.md 的冷却期判断流程图
 // username_history 里同一个用户名可能有多条历史记录（先后被不同人放弃过），

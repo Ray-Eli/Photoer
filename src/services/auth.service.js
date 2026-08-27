@@ -6,6 +6,7 @@ const { generatePublicId, generateToken, generateDefaultUsername } = require('..
 const { sendMail } = require('../lib/mailer');
 const { checkAndIncr } = require('../lib/rateLimit');
 const sessionLib = require('../lib/session');
+const { findUserById, findUserByUsername, updatePasswordHash } = require('../lib/userRepository');
 
 const REGISTRATION_PREFIX = 'registration:';
 const REGISTRATION_EMAIL_PREFIX = 'registration_email:';
@@ -22,11 +23,6 @@ async function findIdentity(type, value) {
     'SELECT * FROM user_identities WHERE type = ? AND value = ?',
     [type, value]
   );
-  return rows[0] || null;
-}
-
-async function findUserById(id) {
-  const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -107,8 +103,8 @@ function checkAccountStatus(user) {
 async function generateUniqueUsername() {
   for (let i = 0; i < 5; i++) {
     const candidate = generateDefaultUsername();
-    const [rows] = await pool.query('SELECT id FROM users WHERE username = ?', [candidate]);
-    if (rows.length === 0) return candidate;
+    const existing = await findUserByUsername(candidate);
+    if (!existing) return candidate;
   }
   throw new Error('生成默认用户名失败，请重试');
 }
@@ -254,8 +250,7 @@ async function login({ account, password, remember }, meta) {
     const identity = await findIdentity('email', account);
     user = identity ? await findUserById(identity.user_id) : null;
   } else {
-    const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [account]);
-    user = rows[0] || null;
+    user = await findUserByUsername(account);
   }
 
   if (!user) {
@@ -421,7 +416,7 @@ async function resetPassword({ token, newPassword }, meta) {
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await pool.query('UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [passwordHash, user.id]);
+  await updatePasswordHash(user.id, passwordHash);
 
   await redis.del(key);
   await sessionLib.destroyAllSessions(user.id);

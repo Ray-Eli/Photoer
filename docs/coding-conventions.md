@@ -23,7 +23,7 @@
 | `src/routes/` | Express 路由定义（只做请求解析、调用 service、返回响应） | `{领域}.route.js` | `auth.route.js` |
 | `src/services/` | 业务逻辑（数据库/Redis 读写、规则判断） | `{领域}.service.js` | `auth.service.js` |
 | `src/middlewares/` | Express 中间件 | `{关注点}.middleware.js` | `session.middleware.js` |
-| `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）或跨领域的基础能力（Session、限流、发邮件、验证码） | 裸名词，不带角色后缀 | `db.js`、`redis.js`、`session.js`、`mailer.js`、`captcha.js`、`rateLimit.js` |
+| `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）、跨领域的基础能力（Session、限流、发邮件、验证码），或某张表的纯数据访问层（Repository） | 裸名词，不带角色后缀；Repository 用 `{表对应的领域}Repository.js` | `db.js`、`redis.js`、`session.js`、`mailer.js`、`captcha.js`、`rateLimit.js`、`userRepository.js` |
 | `src/utils/` | 不依赖外部基础设施的纯函数（ID 生成、格式校验） | 裸名词，不带角色后缀 | `id.js`、`validator.js` |
 | `src/config/` | 配置加载与业务规则常量 | 裸名词；`index.js` 作为聚合入口 | `env.js`、`index.js` |
 | `src/scripts/` | 独立运维脚本（命令行或定时任务启动，不经过 HTTP 路由） | 裸名词，不带角色后缀 | `migrate.js` |
@@ -34,6 +34,8 @@
 两者外观很像（都是裸名词、不带后缀），区分标准是**是否直接接触外部基础设施**：
 - `lib/`：内部会连接数据库、Redis、调用第三方服务（即使目前是打桩）——`db.js`/`redis.js` 是连接，`session.js`/`mailer.js`/`captcha.js`/`rateLimit.js` 是基于 Redis 或第三方 API 的能力封装
 - `utils/`：纯计算，不发任何网络请求、不读写任何外部状态——`id.js`（生成 ID）、`validator.js`（格式校验）
+
+数据访问层（Repository，比如 `userRepository.js`）也属于 `lib/`，因为它直接接触数据库——跟 `db.js` 是同一类东西，只是 `db.js` 封装的是"连接本身"，Repository 封装的是"某张表的读写"。Repository 里只放没有业务规则判断的纯查询/写入（比如"按 id 查用户"），任何带业务判断的逻辑（比如"这个用户名是否可用"，牵扯冷却期、频率限制这些规则）都不下沉，留在 service 层。
 
 ### 2.3 命名大小写
 
@@ -146,14 +148,15 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/lib/mailer.js` | 不变 | |
 | `src/lib/captcha.js` | 不变 | |
 | `src/lib/rateLimit.js` | 不变 | |
+| `src/lib/userRepository.js` | 不变 | 新增，见 2.2；`findUserById` 从 auth.service.js 移入，新增 `findUserByUsername`/`updatePasswordHash` |
 | `src/middlewares/session.middleware.js` | 不变 | |
 | `src/routes/index.js` | 不变 | |
 | `src/routes/auth.route.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
 | `src/routes/session.route.js` | 不变 | 新增，见 2.5 |
 | `src/routes/profile.route.js` | 不变 | 新增，见 2.5 |
-| `src/services/auth.service.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
+| `src/services/auth.service.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域；`findUserById` 改从 `userRepository.js` 引入 |
 | `src/services/session.service.js` | 不变 | 新增，见 2.5 |
-| `src/services/profile.service.js` | 不变 | 新增，见 2.5；内部临时从 auth.service.js 引入 `findUserById`，归属待定 |
+| `src/services/profile.service.js` | 不变 | 新增，见 2.5；`findUserById` 改从 `userRepository.js` 引入，不再依赖 auth.service.js |
 | `src/utils/id.js` | 不变 | |
 | `src/utils/validator.js` | 不变 | |
 | `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动 |
@@ -183,4 +186,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 20 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域。
+**总结**：后端 21 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`findUserById` 等纯数据访问函数已按 2.2 下沉到 `src/lib/userRepository.js`。
