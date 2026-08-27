@@ -10,7 +10,7 @@
 
 以下规则不是凭空定的，是先扫描了 `src/`（后端）和 `web/src/`（前端）现有的全部文件，总结出已经在遵循、只是没写下来的模式，再把它们正式确认成规则。这样规则和现状之间的落差最小，只有个别地方现状本身就不一致，会单独标注。
 
-需要说明一点局限：后端每种角色（路由/服务/中间件）目前都只有 1 个具体业务文件（都是 `auth.*`），规则是从单个样本推出来的，不是从多个文件互相印证得出的，未来加第二个领域（比如 `photo.route.js`）时如果发现规则不合适，应该回来修订本文档，而不是强行套用。
+后端路由/服务层已经出现了不止一个领域（`auth`/`session`/`profile`），2.5 节的拆分规则就是从这次实际拆分中得出的，不是预先设想的。以后再加新领域（比如 `photo.route.js`）如果发现规则不合适，应该回来修订本文档，而不是强行套用。
 
 ---
 
@@ -42,6 +42,20 @@
 ### 2.4 独立运维脚本
 
 独立运维脚本（不经过 HTTP 路由触发，靠命令行或定时任务启动，如 `migrate.js`）统一存放于 `src/scripts/` 目录，与 `routes/`/`services/` 等按 HTTP 请求生命周期组织的角色目录区分开。命名同其他角色一样是裸名词，不带角色后缀（如 `migrate.js`）。这个目录也是将来其他运维脚本（比如账号注销的 30 天清理任务，`decisions.md` ADR-008 提到过）的存放位置。
+
+### 2.5 何时拆分一个领域
+
+`{领域}.route.js`/`{领域}.service.js` 里的"领域"不是固定不变的——一个文件如果混进了多个不同性质的业务，应该按领域拆开，而不是任其膨胀成一个大文件。
+
+拆分信号（出现任一条就该考虑拆）：
+- 文件里出现了明显可以归类到不同名词的函数群（比如"登录认证相关" vs "设备管理相关" vs "资料修改相关"）
+- 文件长度已经让人很难一眼看清"这个文件到底负责什么"
+- 新加功能时，很难判断"这个函数该不该放进这个文件"
+
+拆分方式：
+- 路由层：每个新领域一个 `{领域}.route.js`，各自 `module.exports` 一个 router，在 `src/routes/index.js` 里用 `router.use('/{挂载路径}', xxxRoutes)` 挂载。**多个领域的路由文件可以挂载在同一个路径前缀下**（比如 `auth.route.js`、`session.route.js`、`profile.route.js` 都挂在 `/auth` 下）——URL 是给客户端看的，文件划分是给写代码的人看的，两者的组织方式不需要绑死在一起
+- 服务层：同理拆成 `{领域}.service.js`，每个文件只导出自己领域的函数
+- 如果拆分后发现某个函数被多个领域共用，不要复制两份：要么下沉到 `src/lib/` 或 `src/utils/`，要么明确它归属哪个领域、其他领域直接 `require` 那个领域的 service 来用。具体怎么选，视这个函数是"纯粹的数据访问"（更适合下沉）还是"带业务含义的领域逻辑"（更适合保留归属、被引用）而定
 
 ---
 
@@ -134,8 +148,12 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/lib/rateLimit.js` | 不变 | |
 | `src/middlewares/session.middleware.js` | 不变 | |
 | `src/routes/index.js` | 不变 | |
-| `src/routes/auth.route.js` | 不变 | |
-| `src/services/auth.service.js` | 不变 | |
+| `src/routes/auth.route.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
+| `src/routes/session.route.js` | 不变 | 新增，见 2.5 |
+| `src/routes/profile.route.js` | 不变 | 新增，见 2.5 |
+| `src/services/auth.service.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
+| `src/services/session.service.js` | 不变 | 新增，见 2.5 |
+| `src/services/profile.service.js` | 不变 | 新增，见 2.5；内部临时从 auth.service.js 引入 `findUserById`，归属待定 |
 | `src/utils/id.js` | 不变 | |
 | `src/utils/validator.js` | 不变 | |
 | `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动 |
@@ -165,4 +183,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 16 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`。
+**总结**：后端 20 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域。
