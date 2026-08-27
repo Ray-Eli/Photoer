@@ -227,6 +227,49 @@ router.post('/forgot-password/reset', async (req, res) => {
   }
 });
 
+router.post('/change-email', requireAuth, rateLimitMiddleware('login'), captchaMiddleware, async (req, res) => {
+  try {
+    const { password, newEmail } = req.body;
+
+    if (!password || !newEmail) {
+      return res.status(400).json({ error: '密码和新邮箱不能为空' });
+    }
+    if (!validator.isValidEmail(newEmail)) {
+      return res.status(400).json({ error: '邮箱格式不正确' });
+    }
+
+    const result = await authService.startChangeEmail(req.user.id, { password, newEmail });
+    res.json({ message: '验证码已发送', token: result.token });
+  } catch (err) {
+    if (err.code === 'INVALID_PASSWORD') {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.code === 'RATE_LIMITED') {
+      return res.status(429).json({ error: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ error: '操作失败，请稍后重试' });
+  }
+});
+
+router.post('/change-email/verify', requireAuth, async (req, res) => {
+  try {
+    const { token, code } = req.body;
+    if (!token || !code) {
+      return res.status(400).json({ error: 'token 和验证码不能为空' });
+    }
+
+    const result = await authService.verifyChangeEmail(req.user.id, { token, code });
+    res.json({ message: '换绑成功', newEmail: result.newEmail });
+  } catch (err) {
+    if (['EXPIRED', 'TOO_MANY_ATTEMPTS', 'INVALID_CODE'].includes(err.code)) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ error: '验证失败，请稍后重试' });
+  }
+});
+
 router.post('/logout', requireAuth, async (req, res) => {
   await authService.logout(req.sessionId);
   res.clearCookie(config.cookie.name);

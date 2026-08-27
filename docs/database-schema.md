@@ -214,10 +214,10 @@ flowchart TD
 | `registration:{token}` | Hash | email, nickname, passwordHash, code, attempts | 10 分钟 |
 | `login_code:{token}` | Hash | email, code, attempts | 5 分钟 |
 | `reset_pwd:{token}` | Hash | userId, code, attempts | 5 分钟 |
-| `change_email:{token}` | Hash | userId, newEmail, code, attempts | 5 分钟 |
+| `change_email:{token}` | Hash | userId, newEmail, code, attempts, taken（新邮箱是否已被占用） | 5 分钟 |
 | `ratelimit:login:{ip}` | String | 计数 | 15 分钟 |
 | `ratelimit:register:{ip}` | String | 计数 | 15 分钟 |
-| `email_cooldown:{scope}:{email}` | String | 单封邮件重发冷却标记，`scope` 为 `register`/`login`/`reset` | 按各流程 cooldownSec 配置 |
+| `email_cooldown:{scope}:{email}` | String | 单封邮件重发冷却标记，`scope` 为 `register`/`login`/`reset`/`changeEmail` | 按各流程 cooldownSec 配置 |
 | `email_send:{scope}:{email}` | String | 该邮箱在该场景下的发送次数 | 1 小时 |
 | `user:{userId}:last_active` | String | 时间戳 | 无 |
 
@@ -227,7 +227,8 @@ flowchart TD
 - 密码在存入 Redis 前已完成 bcrypt 加密，不以明文形式存在于任何位置
 - `user_sessions` 集合用于"删除该用户所有 Session"（封禁、改密码、注销时）
 - `session` Hash 里的 `ref` 是 NanoID，专门给前端展示/操作用（设备管理列表），跟真实 sessionId 相互独立，`ref` 不能当登录凭证使用，参见 auth-design.md 4.2
-- `email_cooldown`/`email_send` 按 `scope` 隔离，注册、验证码登录、忘记密码互不影响发送冷却和每小时上限，避免同一邮箱刚发过一种验证码就把另一种流程也卡住
+- `email_cooldown`/`email_send` 按 `scope` 隔离，注册、验证码登录、忘记密码、换绑邮箱互不影响发送冷却和每小时上限，避免同一邮箱刚发过一种验证码就把另一种流程也卡住
+- `change_email:{token}` 没有加"是否已发送安全通知"这类去重字段：验证成功后 token 立刻被删除，同一个 token 不可能被重复消费；`mailer.js` 目前是打桩实现，不存在真实发送失败需要重试的场景。如果以后接入真实邮件服务、且需要给发送失败加重试机制，届时再补这个字段，现在加是提前为不存在的问题设计
 
 ## 五、设计说明
 
