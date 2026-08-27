@@ -6,7 +6,7 @@ const { generatePublicId, generateToken, generateDefaultUsername } = require('..
 const { sendMail } = require('../lib/mailer');
 const { checkAndIncr } = require('../lib/rateLimit');
 const sessionLib = require('../lib/session');
-const { findUserById, findUserByUsername, updatePasswordHash } = require('../lib/userRepository');
+const { findUserById, findUserByUsername, updatePasswordHash, insertUser } = require('../lib/userRepository');
 
 const REGISTRATION_PREFIX = 'registration:';
 const REGISTRATION_EMAIL_PREFIX = 'registration_email:';
@@ -208,12 +208,10 @@ async function verifyRegister({ token, code }, meta) {
     const publicId = generatePublicId();
     const username = await generateUniqueUsername();
 
-    const [result] = await conn.query(
-      `INSERT INTO users (public_id, username, nickname, password_hash, status, username_customized, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', 0, NOW(), NOW())`,
-      [publicId, username, data.nickname, data.passwordHash]
+    const userId = await insertUser(
+      { publicId, username, nickname: data.nickname, passwordHash: data.passwordHash },
+      conn
     );
-    const userId = result.insertId;
 
     await conn.query(
       `INSERT INTO user_identities (user_id, type, value, verified_at, created_at)

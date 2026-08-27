@@ -1,13 +1,13 @@
 const pool = require('../lib/db');
 const config = require('../config');
-const { findUserById } = require('../lib/userRepository');
+const { findUserById, findUserByUsername, updateUsername, updateNickname } = require('../lib/userRepository');
 
 // 用户名可用性判断，严格对应 database-schema.md 的冷却期判断流程图
 // username_history 里同一个用户名可能有多条历史记录（先后被不同人放弃过），
 // 永久锁定只要命中任意一条就生效；90天冷却期只看最近一次释放的时间
 async function isUsernameAvailable(username, requestingUserId) {
-  const [existingUsers] = await pool.query('SELECT id FROM users WHERE username = ?', [username]);
-  if (existingUsers.length > 0) return false;
+  const existingUser = await findUserByUsername(username);
+  if (existingUser) return false;
 
   const [historyRows] = await pool.query(
     'SELECT user_id, released_at, locked_forever FROM username_history WHERE username = ?',
@@ -62,10 +62,7 @@ async function changeUsername(userId, newUsername) {
       [userId, user.username]
     );
 
-    await conn.query(
-      'UPDATE users SET username = ?, username_customized = 1, updated_at = NOW() WHERE id = ?',
-      [newUsername, userId]
-    );
+    await updateUsername(userId, newUsername, conn);
 
     await conn.commit();
   } catch (err) {
@@ -109,7 +106,7 @@ async function changeNickname(userId, newNickname) {
       [userId, user.nickname, newNickname]
     );
 
-    await conn.query('UPDATE users SET nickname = ?, updated_at = NOW() WHERE id = ?', [newNickname, userId]);
+    await updateNickname(userId, newNickname, conn);
 
     await conn.commit();
   } catch (err) {

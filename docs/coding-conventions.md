@@ -37,6 +37,8 @@
 
 数据访问层（Repository，比如 `userRepository.js`）也属于 `lib/`，因为它直接接触数据库——跟 `db.js` 是同一类东西，只是 `db.js` 封装的是"连接本身"，Repository 封装的是"某张表的读写"。Repository 里只放没有业务规则判断的纯查询/写入（比如"按 id 查用户"），任何带业务判断的逻辑（比如"这个用户名是否可用"，牵扯冷却期、频率限制这些规则）都不下沉，留在 service 层。
 
+**Repository 函数统一支持可选的事务连接参数**：每个函数最后一个参数是可选的数据库连接对象，传入时用这个连接执行（从而参与调用方已经开启的事务），不传时自行从连接池获取连接执行。事务的开启、提交、回滚由 service 层负责，Repository 只负责在指定的连接上执行 SQL，不管理事务生命周期。
+
 ### 2.3 命名大小写
 
 统一小写，多单词用 camelCase（如 `rateLimit.js`），角色后缀用英文句点分隔（如 `auth.route.js`）。后端文件不对应 UI 组件，不使用 PascalCase。
@@ -148,7 +150,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/lib/mailer.js` | 不变 | |
 | `src/lib/captcha.js` | 不变 | |
 | `src/lib/rateLimit.js` | 不变 | |
-| `src/lib/userRepository.js` | 不变 | 新增，见 2.2；`findUserById` 从 auth.service.js 移入，新增 `findUserByUsername`/`updatePasswordHash` |
+| `src/lib/userRepository.js` | 不变 | 见 2.2；`findUserById`/`findUserByUsername`/`updatePasswordHash`/`insertUser`/`updateUsername`/`updateNickname`，均支持可选事务连接参数 |
 | `src/middlewares/session.middleware.js` | 不变 | |
 | `src/routes/index.js` | 不变 | |
 | `src/routes/auth.route.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
@@ -186,4 +188,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 21 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`findUserById` 等纯数据访问函数已按 2.2 下沉到 `src/lib/userRepository.js`。
+**总结**：后端 21 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数。
