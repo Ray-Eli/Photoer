@@ -11,6 +11,7 @@ const REGISTRATION_PREFIX = 'registration:';
 const REGISTRATION_EMAIL_PREFIX = 'registration_email:';
 const LOGIN_CODE_PREFIX = 'login_code:';
 const RESET_PWD_PREFIX = 'reset_pwd:';
+const CHANGE_EMAIL_PREFIX = 'change_email:';
 
 function genCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -26,6 +27,14 @@ async function findIdentity(type, value) {
 
 async function findUserById(id) {
   const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
+  return rows[0] || null;
+}
+
+async function findIdentityByUserId(userId, type) {
+  const [rows] = await pool.query(
+    'SELECT * FROM user_identities WHERE user_id = ? AND type = ?',
+    [userId, type]
+  );
   return rows[0] || null;
 }
 
@@ -280,14 +289,13 @@ async function startLoginCode({ email }) {
   const identity = await findIdentity('email', email);
 
   if (!identity) {
-    await issueVerificationCode(LOGIN_CODE_PREFIX, expireMin * 60, { email, exists: '0' });
+    const { token } = await issueVerificationCode(LOGIN_CODE_PREFIX, expireMin * 60, { email, exists: '0' });
     await sendMail({
       to: email,
       subject: '登录提醒',
       text: '该邮箱尚未注册 Photoer，如果不是你本人操作，请忽略此邮件。',
     });
-    // 不存在的邮箱也要返回一个 token，行为跟正常流程保持一致
-    return { token: generateToken() };
+    return { token };
   }
 
   const { token, code } = await issueVerificationCode(LOGIN_CODE_PREFIX, expireMin * 60, {
@@ -347,13 +355,13 @@ async function startForgotPassword({ email }) {
   const identity = await findIdentity('email', email);
 
   if (!identity) {
-    await issueVerificationCode(RESET_PWD_PREFIX, expireMin * 60, { email, exists: '0' });
+    const { token } = await issueVerificationCode(RESET_PWD_PREFIX, expireMin * 60, { email, exists: '0' });
     await sendMail({
       to: email,
       subject: '重置密码提醒',
       text: '该邮箱尚未在 Photoer 注册，如果不是你本人操作，请忽略此邮件。',
     });
-    return { token: generateToken() };
+    return { token };
   }
 
   const { token, code } = await issueVerificationCode(RESET_PWD_PREFIX, expireMin * 60, {
@@ -423,6 +431,120 @@ async function resetPassword({ token, newPassword }, meta) {
   return { sessionId, ttl, user: serializeUser(user) };
 }
 
+// 换绑邮箱第一步：校验当前密码，新邮箱被占用时页面表现与正常流程一致，真实情况通知被占用账号本人
+async function startChangeEmail(userId, { password, newEmail }) {
+  const user = await findUserById(userId);
+  if (!user) {
+    const err = new Error('用户不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  const isMatch = await bcrypt.compare(password, user.password_hash);
+  if (!isMatch) {
+    const err = new Error('密码错误');
+    err.code = 'INVALID_PASSWORD';
+    throw err;
+  }
+
+  const { expireMin, cooldownSec, maxPerHour } = config.verification.changeEmail;
+
+  const canSend = await canSendEmail(newEmail, 'changeEmail', { cooldownSec, maxPerHour });
+  if (!canSend) {
+    const err = new Error('发送过于频繁，请稍后重试');
+    err.code = 'RATE_LIMITED';
+    throw err;
+  }
+
+  const occupiedBy = await findIdentity('email', newEmail);
+
+  if (occupiedBy) {
+    const { token } = await issueVerificationCode(CHANGE_EMAIL_PREFIX, expireMin * 60, {
+      userId: String(userId),
+      newEmail,
+      taken: '1',
+    });
+    await sendMail({
+      to: newEmail,
+      subject: '换绑邮箱提醒',
+      text: '有人尝试用你的邮箱进行 Photoer 账号换绑，如果不是你本人操作，请忽略此邮件。',
+    });
+    return { token };
+  }
+
+  const { token, code } = await issueVerificationCode(CHANGE_EMAIL_PREFIX, expireMin * 60, {
+    userId: String(userId),
+    newEmail,
+    taken: '0',
+  });
+
+  await sendMail({
+    to: newEmail,
+    subject: 'Photoer 换绑邮箱验证码',
+    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
+  });
+
+  return { token };
+}
+
+// 换绑邮箱第二步：校验通过后事务替换 user_identities，旧记录归档进 identity_history，
+// 不强制踢掉其他设备（跟改密码/注销不同，换绑邮箱本身不代表账号已失控），换绑后给旧邮箱发安全通知
+async function verifyChangeEmail(userId, { token, code }) {
+  const { maxAttempts } = config.verification.changeEmail;
+  const data = await consumeVerificationCode(CHANGE_EMAIL_PREFIX, token, code, maxAttempts);
+
+  // taken=1 说明第一步时新邮箱已被占用；userId 不匹配说明这个 token 不是当前登录用户自己发起的，
+  // 两种情况都统一按验证码错误处理，不细分原因
+  if (data.taken === '1' || Number(data.userId) !== userId) {
+    const err = new Error('验证码错误');
+    err.code = 'INVALID_CODE';
+    throw err;
+  }
+
+  const oldIdentity = await findIdentityByUserId(userId, 'email');
+  if (!oldIdentity) {
+    const err = new Error('操作失败，请稍后重试');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    await conn.query(
+      `INSERT INTO identity_history (user_id, type, value, bound_at, removed_at, reason)
+       VALUES (?, 'email', ?, ?, NOW(), 'changed')`,
+      [userId, oldIdentity.value, oldIdentity.verified_at]
+    );
+
+    await conn.query('DELETE FROM user_identities WHERE id = ?', [oldIdentity.id]);
+
+    await conn.query(
+      `INSERT INTO user_identities (user_id, type, value, verified_at, created_at)
+       VALUES (?, 'email', ?, NOW(), NOW())`,
+      [userId, data.newEmail]
+    );
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  await redis.del(`${CHANGE_EMAIL_PREFIX}${token}`);
+
+  await sendMail({
+    to: oldIdentity.value,
+    subject: 'Photoer 账号安全提醒',
+    text: `您的 Photoer 账号邮箱已被更换为 ${data.newEmail}，如果这不是您本人的操作，请尽快联系我们或重置密码。`,
+  });
+
+  return { newEmail: data.newEmail };
+}
+
 async function logout(sessionId) {
   if (sessionId) await sessionLib.destroySession(sessionId);
 }
@@ -483,6 +605,8 @@ module.exports = {
   logout,
   listSessions,
   revokeSession,
+  startChangeEmail,
+  verifyChangeEmail,
   findUserById,
   serializeUser,
 };
