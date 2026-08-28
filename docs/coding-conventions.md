@@ -45,7 +45,11 @@
 
 ### 2.4 独立运维脚本
 
-独立运维脚本（不经过 HTTP 路由触发，靠命令行或定时任务启动，如 `migrate.js`）统一存放于 `src/scripts/` 目录，与 `routes/`/`services/` 等按 HTTP 请求生命周期组织的角色目录区分开。命名同其他角色一样是裸名词，不带角色后缀（如 `migrate.js`）。这个目录也是将来其他运维脚本（比如账号注销的 30 天清理任务，`decisions.md` ADR-008 提到过）的存放位置。
+独立运维脚本（不经过 HTTP 路由触发，靠命令行或定时任务启动，如 `migrate.js`）统一存放于 `src/scripts/` 目录，与 `routes/`/`services/` 等按 HTTP 请求生命周期组织的角色目录区分开。命名同其他角色一样是裸名词，不带角色后缀（如 `migrate.js`、`purgeDeletedAccounts.js`）。
+
+这类脚本通常是被 cron/计划任务调用的一次性任务，有两条硬性要求：
+- **必须支持重复执行**：脚本可能因为服务器重启、计划任务重叠触发等原因被多次运行，必须能安全地重复跑而不产生副作用或重复处理同一条数据。判断"是否已处理过"要用数据本身的状态做依据（比如某条关联记录是否还存在），不要用容易产生歧义的字符串特征匹配
+- **必须正常退出**：脚本逻辑跑完后要显式调用 `process.exit()`（成功 0、失败非 0），并在退出前关闭数据库连接池等资源。cron 调用的是一次性进程，脚本自己不退出，进程会一直挂着不结束
 
 ### 2.5 何时拆分一个领域
 
@@ -150,7 +154,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/lib/mailer.js` | 不变 | |
 | `src/lib/captcha.js` | 不变 | |
 | `src/lib/rateLimit.js` | 不变 | |
-| `src/lib/userRepository.js` | 不变 | 见 2.2；`findUserById`/`findUserByUsername`/`updatePasswordHash`/`insertUser`/`updateUsername`/`updateNickname`，均支持可选事务连接参数 |
+| `src/lib/userRepository.js` | 不变 | 见 2.2；users 表纯数据访问函数集合，均支持可选事务连接参数 |
 | `src/middlewares/session.middleware.js` | 不变 | |
 | `src/routes/index.js` | 不变 | |
 | `src/routes/auth.route.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
@@ -162,6 +166,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/utils/id.js` | 不变 | |
 | `src/utils/validator.js` | 不变 | |
 | `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动 |
+| `src/scripts/purgeDeletedAccounts.js` | 不变 | 新增，账号注销 30 天清理任务，见 2.4 |
 
 ### 前端（`web/src/`）
 
@@ -188,4 +193,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 21 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数。
+**总结**：后端 22 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务。

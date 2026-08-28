@@ -40,6 +40,21 @@ async function updateNickname(userId, newNickname, conn = pool) {
   await conn.query('UPDATE users SET nickname = ?, updated_at = NOW() WHERE id = ?', [newNickname, userId]);
 }
 
+// 注销：status 改 deleted，记录注销时间和清理截止时间（天数由调用方传入，不在这里写死）
+async function markUserDeleted(userId, deleteCooldownDays, conn = pool) {
+  await conn.query(
+    `UPDATE users SET status = 'deleted', deleted_at = NOW(), purge_after = DATE_ADD(NOW(), INTERVAL ? DAY), updated_at = NOW()
+     WHERE id = ?`,
+    [deleteCooldownDays, userId]
+  );
+}
+
+// 30天清理任务专用：把用户名改成 {原名}_deleted_{id} 形式，不设置 username_customized
+// （这是系统清理时的强制改名，不是用户自己改名，语义上跟 updateUsername 不一样，不复用它）
+async function renameForPurge(userId, newUsername, conn = pool) {
+  await conn.query('UPDATE users SET username = ?, updated_at = NOW() WHERE id = ?', [newUsername, userId]);
+}
+
 module.exports = {
   findUserById,
   findUserByUsername,
@@ -47,4 +62,6 @@ module.exports = {
   insertUser,
   updateUsername,
   updateNickname,
+  markUserDeleted,
+  renameForPurge,
 };

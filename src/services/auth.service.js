@@ -6,7 +6,7 @@ const { generatePublicId, generateToken, generateDefaultUsername } = require('..
 const { sendMail } = require('../lib/mailer');
 const { checkAndIncr } = require('../lib/rateLimit');
 const sessionLib = require('../lib/session');
-const { findUserById, findUserByUsername, updatePasswordHash, insertUser } = require('../lib/userRepository');
+const { findUserById, findUserByUsername, updatePasswordHash, insertUser, markUserDeleted } = require('../lib/userRepository');
 
 const REGISTRATION_PREFIX = 'registration:';
 const REGISTRATION_EMAIL_PREFIX = 'registration_email:';
@@ -538,6 +538,26 @@ async function verifyChangeEmail(userId, { token, code }) {
   return { newEmail: data.newEmail };
 }
 
+// 注销账号（ADR-008 软删除）：密码二次验证 + 软删除 + 踢掉所有设备；不删除任何用户数据
+async function deleteAccount(userId, { password }) {
+  const user = await findUserById(userId);
+  if (!user) {
+    const err = new Error('用户不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  const isMatch = await bcrypt.compare(password, user.password_hash);
+  if (!isMatch) {
+    const err = new Error('密码错误');
+    err.code = 'INVALID_PASSWORD';
+    throw err;
+  }
+
+  await markUserDeleted(userId, config.account.deleteCooldownDays);
+  await sessionLib.destroyAllSessions(userId);
+}
+
 async function logout(sessionId) {
   if (sessionId) await sessionLib.destroySession(sessionId);
 }
@@ -563,6 +583,7 @@ module.exports = {
   logout,
   startChangeEmail,
   verifyChangeEmail,
+  deleteAccount,
   findUserById,
   serializeUser,
 };

@@ -270,6 +270,26 @@ router.post('/change-email/verify', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/delete-account', requireAuth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: '密码不能为空' });
+    }
+
+    await authService.deleteAccount(req.user.id, { password });
+
+    res.clearCookie(config.cookie.name);
+    res.json({ message: '账号已注销' });
+  } catch (err) {
+    if (err.code === 'INVALID_PASSWORD') {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ error: '操作失败，请稍后重试' });
+  }
+});
+
 router.post('/logout', requireAuth, async (req, res) => {
   await authService.logout(req.sessionId);
   res.clearCookie(config.cookie.name);
