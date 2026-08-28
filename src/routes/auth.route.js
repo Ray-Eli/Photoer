@@ -219,6 +219,12 @@ router.post('/forgot-password/reset', async (req, res) => {
     res.cookie(config.cookie.name, result.sessionId, cookieOptions(result.ttl));
     res.json({ message: '密码重置成功', user: result.user });
   } catch (err) {
+    if (err.code === 'BANNED') {
+      return res.status(403).json({ error: '账号异常', reason: err.banReason || '' });
+    }
+    if (err.code === 'DELETED') {
+      return res.status(403).json({ error: '账号已注销' });
+    }
     if (['NOT_VERIFIED', 'EXPIRED', 'SAME_PASSWORD'].includes(err.code)) {
       return res.status(400).json({ error: err.message });
     }

@@ -396,6 +396,21 @@ async function resetPassword({ token, newPassword }, meta) {
     throw err;
   }
 
+  // 验证码已经证明操作者拿得到这个邮箱，这时候告知账号状态不算泄露（design-principles.md 1.1 例外条款），
+  // 跟密码登录"密码验证通过后才提示封禁原因"是同一个逻辑。注销不可撤销，改密码没有意义，直接拒绝
+  const statusCheck = checkAccountStatus(user);
+  if (!statusCheck.ok) {
+    if (statusCheck.reason === 'BANNED') {
+      const err = new Error('账号异常');
+      err.code = 'BANNED';
+      err.banReason = statusCheck.banReason;
+      throw err;
+    }
+    const err = new Error('账号已注销');
+    err.code = 'DELETED';
+    throw err;
+  }
+
   const isSameAsOld = await bcrypt.compare(newPassword, user.password_hash);
   if (isSameAsOld) {
     const err = new Error('新密码不能与旧密码相同');
