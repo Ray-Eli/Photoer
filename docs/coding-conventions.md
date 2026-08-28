@@ -25,7 +25,7 @@
 | `src/middlewares/` | Express 中间件 | `{关注点}.middleware.js` | `session.middleware.js` |
 | `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）、跨领域的基础能力（Session、限流、发邮件、验证码），或某张表的纯数据访问层（Repository） | 裸名词，不带角色后缀；Repository 用 `{表对应的领域}Repository.js` | `db.js`、`redis.js`、`session.js`、`mailer.js`、`captcha.js`、`rateLimit.js`、`userRepository.js` |
 | `src/utils/` | 不依赖外部基础设施的纯函数（ID 生成、格式校验） | 裸名词，不带角色后缀 | `id.js`、`validator.js` |
-| `src/config/` | 配置加载与业务规则常量 | 裸名词；`index.js` 作为聚合入口 | `env.js`、`index.js` |
+| `src/config/` | 配置加载、业务规则常量、面向用户的文案模板（邮件、短信这类"会变的策略性内容"，design-principles.md 二） | 裸名词；`index.js` 作为聚合入口；文案模板用 `{渠道}Templates.js` | `env.js`、`index.js`、`emailTemplates.js` |
 | `src/scripts/` | 独立运维脚本（命令行或定时任务启动，不经过 HTTP 路由） | 裸名词，不带角色后缀 | `migrate.js` |
 | `src/` 根目录 | 应用入口 | `index.js`（Node/Express 惯例，对应 `package.json` 的 `main` 字段） | `index.js` |
 
@@ -148,6 +148,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/index.js` | 不变 | |
 | `src/config/env.js` | 不变 | |
 | `src/config/index.js` | 不变 | |
+| `src/config/emailTemplates.js` | 不变 | 新增，邮件文案集中管理，从各 service 里的硬编码字符串抽取而来 |
 | `src/lib/db.js` | 不变 | |
 | `src/lib/redis.js` | 不变 | |
 | `src/lib/session.js` | 不变 | |
@@ -193,4 +194,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 22 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务。
+**总结**：后端 23 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`。

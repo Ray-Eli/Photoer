@@ -7,6 +7,7 @@ const { sendMail } = require('../lib/mailer');
 const { checkAndIncr } = require('../lib/rateLimit');
 const sessionLib = require('../lib/session');
 const { findUserById, findUserByUsername, updatePasswordHash, insertUser, markUserDeleted } = require('../lib/userRepository');
+const emailTemplates = require('../config/emailTemplates');
 
 const REGISTRATION_PREFIX = 'registration:';
 const REGISTRATION_EMAIL_PREFIX = 'registration_email:';
@@ -16,6 +17,12 @@ const CHANGE_EMAIL_PREFIX = 'change_email:';
 
 function genCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// purge_after 距今还剩多少天，向上取整；已经过期（快要被清理脚本处理）时按 1 天显示，不显示 0 或负数
+function daysUntil(date) {
+  const diffMs = new Date(date).getTime() - Date.now();
+  return Math.max(1, Math.ceil(diffMs / 86400000));
 }
 
 async function findIdentity(type, value) {
@@ -125,11 +132,14 @@ async function startRegister({ email, nickname, password }) {
 
   if (identity) {
     // 邮箱已注册：页面表现与正常流程一致，真实情况通过邮件告知（design-principles.md 1.1）
-    await sendMail({
-      to: email,
-      subject: '注册提醒',
-      text: '有人使用您的邮箱尝试注册 Photoer，如果是您本人请直接登录。',
-    });
+    // 已注销但还在冷却期内的账号是单独一种情况：不能提示"直接登录"，登录不了
+    const owner = await findUserById(identity.user_id);
+    const emailContent =
+      owner && owner.status === 'deleted'
+        ? emailTemplates.registerEmailDeletedCooldown({ daysLeft: daysUntil(owner.purge_after) })
+        : emailTemplates.registerEmailTaken();
+
+    await sendMail({ to: email, ...emailContent });
 
     await redis.hset(`${REGISTRATION_PREFIX}${token}`, {
       email,
@@ -164,11 +174,7 @@ async function startRegister({ email, nickname, password }) {
   await redis.expire(`${REGISTRATION_PREFIX}${token}`, expireMin * 60);
   await redis.set(`${REGISTRATION_EMAIL_PREFIX}${email}`, token, 'EX', expireMin * 60);
 
-  await sendMail({
-    to: email,
-    subject: 'Photoer 注册验证码',
-    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
-  });
+  await sendMail({ to: email, ...emailTemplates.registerCode({ code, expireMin }) });
 
   return { token };
 }
@@ -283,11 +289,7 @@ async function startLoginCode({ email }) {
 
   if (!identity) {
     const { token } = await issueVerificationCode(LOGIN_CODE_PREFIX, expireMin * 60, { email, exists: '0' });
-    await sendMail({
-      to: email,
-      subject: '登录提醒',
-      text: '该邮箱尚未注册 Photoer，如果不是你本人操作，请忽略此邮件。',
-    });
+    await sendMail({ to: email, ...emailTemplates.loginEmailNotFound() });
     return { token };
   }
 
@@ -297,11 +299,7 @@ async function startLoginCode({ email }) {
     userId: String(identity.user_id),
   });
 
-  await sendMail({
-    to: email,
-    subject: 'Photoer 登录验证码',
-    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
-  });
+  await sendMail({ to: email, ...emailTemplates.loginCode({ code, expireMin }) });
 
   return { token };
 }
@@ -349,11 +347,7 @@ async function startForgotPassword({ email }) {
 
   if (!identity) {
     const { token } = await issueVerificationCode(RESET_PWD_PREFIX, expireMin * 60, { email, exists: '0' });
-    await sendMail({
-      to: email,
-      subject: '重置密码提醒',
-      text: '该邮箱尚未在 Photoer 注册，如果不是你本人操作，请忽略此邮件。',
-    });
+    await sendMail({ to: email, ...emailTemplates.resetPasswordEmailNotFound() });
     return { token };
   }
 
@@ -363,11 +357,7 @@ async function startForgotPassword({ email }) {
     userId: String(identity.user_id),
   });
 
-  await sendMail({
-    to: email,
-    subject: 'Photoer 重置密码验证码',
-    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
-  });
+  await sendMail({ to: email, ...emailTemplates.resetPasswordCode({ code, expireMin }) });
 
   return { token };
 }
@@ -457,11 +447,7 @@ async function startChangeEmail(userId, { password, newEmail }) {
       newEmail,
       taken: '1',
     });
-    await sendMail({
-      to: newEmail,
-      subject: '换绑邮箱提醒',
-      text: '有人尝试用你的邮箱进行 Photoer 账号换绑，如果不是你本人操作，请忽略此邮件。',
-    });
+    await sendMail({ to: newEmail, ...emailTemplates.changeEmailTaken() });
     return { token };
   }
 
@@ -471,11 +457,7 @@ async function startChangeEmail(userId, { password, newEmail }) {
     taken: '0',
   });
 
-  await sendMail({
-    to: newEmail,
-    subject: 'Photoer 换绑邮箱验证码',
-    text: `你的验证码是 ${code}，${expireMin} 分钟内有效。`,
-  });
+  await sendMail({ to: newEmail, ...emailTemplates.changeEmailCode({ code, expireMin }) });
 
   return { token };
 }
@@ -529,11 +511,7 @@ async function verifyChangeEmail(userId, { token, code }) {
 
   await redis.del(`${CHANGE_EMAIL_PREFIX}${token}`);
 
-  await sendMail({
-    to: oldIdentity.value,
-    subject: 'Photoer 账号安全提醒',
-    text: `您的 Photoer 账号邮箱已被更换为 ${data.newEmail}，如果这不是您本人的操作，请尽快联系我们或重置密码。`,
-  });
+  await sendMail({ to: oldIdentity.value, ...emailTemplates.changeEmailSecurityNotice({ newEmail: data.newEmail }) });
 
   return { newEmail: data.newEmail };
 }
