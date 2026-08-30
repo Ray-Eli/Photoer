@@ -67,7 +67,7 @@
 
 ### 2.6 接口文档
 
-项目接入了 Swagger/OpenAPI（`swagger-jsdoc` + `swagger-ui-express`，代码优先流派，配置见 `src/lib/swagger.js`）。**新增或修改 `src/routes/` 下的接口时，必须同步补充/更新对应的 `@swagger` JSDoc 注释**，写在 `router.xxx(...)` 定义的正上方，跟着改，不要等攒够一批再回来补——这是为了不出现"接口加了但文档没更新"的情况。文档只在本地开发环境启用（`NODE_ENV=development` 时），访问方式见根目录 `README.md`。
+项目接入了 Swagger/OpenAPI（`swagger-jsdoc` 生成规范 + Scalar `@scalar/express-api-reference` 渲染页面，代码优先流派，配置见 `src/lib/swagger.js`）。**新增或修改 `src/routes/` 下的接口时，必须同步补充/更新对应的 `@swagger` JSDoc 注释**，写在 `router.xxx(...)` 定义的正上方，跟着改，不要等攒够一批再回来补——这是为了不出现"接口加了但文档没更新"的情况。文档只在本地开发环境启用（`NODE_ENV=development` 时），访问方式见根目录 `README.md`。
 
 ---
 

@@ -180,7 +180,7 @@ XSS 危害更大（一旦得手能做的远不止盗 token），且 CSRF 有成�
 
 **日期**：2026-08-30
 
-**背景**：接入 Swagger/OpenAPI 接口文档（swagger-jsdoc + swagger-ui-express），需要确定文档页面在测试服、正式服上的可见性。
+**背景**：接入 Swagger/OpenAPI 接口文档（swagger-jsdoc 生成规范 + Scalar 渲染页面，最初用 swagger-ui-express 渲染，后替换为 Scalar，规范生成这一层没有变化），需要确定文档页面在测试服、正式服上的可见性。
 
 **决策**：
 - 只有 `NODE_ENV` 显式等于 `development` 时才挂载 `/api-docs` 路由，其余情况（包括 `NODE_ENV` 未设置）一律不挂载

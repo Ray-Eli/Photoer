@@ -27,8 +27,8 @@
     "ua-parser-js": "^2.0.10"
   },
   "devDependencies": {
+    "@scalar/express-api-reference": "^0.10.17",
     "cross-env": "^10.1.0",
-    "swagger-jsdoc": "^6.3.0",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-jsdoc": "^6.3.0"
   }
 }
