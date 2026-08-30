@@ -4,7 +4,7 @@
   "description": "摄影分享平台 - 分享日常瞬间与拍摄地点推荐",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "cross-env NODE_ENV=development node src/index.js",
     "start:test": "cross-env NODE_ENV=test node src/index.js",
     "migrate": "node src/scripts/migrate.js",
     "migrate:test": "cross-env NODE_ENV=test node src/scripts/migrate.js",
@@ -27,6 +27,8 @@
     "ua-parser-js": "^2.0.10"
   },
   "devDependencies": {
-    "cross-env": "^10.1.0"
+    "cross-env": "^10.1.0",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1"
   }
 }

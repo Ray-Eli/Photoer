@@ -65,6 +65,10 @@
 - 服务层：同理拆成 `{领域}.service.js`，每个文件只导出自己领域的函数
 - 如果拆分后发现某个函数被多个领域共用，不要复制两份：要么下沉到 `src/lib/` 或 `src/utils/`，要么明确它归属哪个领域、其他领域直接 `require` 那个领域的 service 来用。具体怎么选，视这个函数是"纯粹的数据访问"（更适合下沉）还是"带业务含义的领域逻辑"（更适合保留归属、被引用）而定
 
+### 2.6 接口文档
+
+项目接入了 Swagger/OpenAPI（`swagger-jsdoc` + `swagger-ui-express`，代码优先流派，配置见 `src/lib/swagger.js`）。**新增或修改 `src/routes/` 下的接口时，必须同步补充/更新对应的 `@swagger` JSDoc 注释**，写在 `router.xxx(...)` 定义的正上方，跟着改，不要等攒够一批再回来补——这是为了不出现"接口加了但文档没更新"的情况。文档只在本地开发环境启用（`NODE_ENV=development` 时），访问方式见根目录 `README.md`。
+
 ---
 
 ## 三、前端命名规范（`web/src/`，React / Next.js 生态）
@@ -156,6 +160,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/lib/captcha.js` | 不变 | |
 | `src/lib/rateLimit.js` | 不变 | |
 | `src/lib/userRepository.js` | 不变 | 见 2.2；users 表纯数据访问函数集合，均支持可选事务连接参数 |
+| `src/lib/swagger.js` | 不变 | 新增，见 2.6；仅 `NODE_ENV=development` 时挂载 `/api-docs` |
 | `src/middlewares/session.middleware.js` | 不变 | |
 | `src/routes/index.js` | 不变 | |
 | `src/routes/auth.route.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
@@ -194,4 +199,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 23 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`。
+**总结**：后端 24 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，接口文档见 2.6。

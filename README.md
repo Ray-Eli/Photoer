@@ -20,6 +20,8 @@ npm run dev
 
 前端固定跑在 `http://localhost:3000`，后端跑在 `.env` 里 `PORT` 指定的端口（当前是 3001）。浏览器只需要访问前端的 3000，前端会把 `/api/*` 请求自动代理到后端，不会有跨域问题（配置在 `web/next.config.mjs`）。
 
+**接口文档**：后端用 `npm start` 启动后（会自动设置 `NODE_ENV=development`），访问 `http://localhost:3001/api-docs` 能看到完整的 Swagger 接口文档，包含每个接口的参数、响应结构、错误码说明，页面上可以直接 "Try it out" 试调。这个文档只在本地开发环境启用，测试服/正式服访问这个路径会得到 404（不会注册这个路由，不是权限拦截）。
+
 ## 初始化步骤
 
 1. 复制 `.env` 所需的配置项（`DB_HOST`/`DB_USER`/`DB_PASSWORD`/`DB_NAME`、`PORT`、`REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`/`REDIS_DB`），本地需要有可用的 MySQL 和 Redis
