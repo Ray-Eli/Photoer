@@ -23,7 +23,7 @@
 | `src/routes/` | Express 路由定义（只做请求解析、调用 service、返回响应） | `{领域}.route.js` | `auth.route.js` |
 | `src/services/` | 业务逻辑（数据库/Redis 读写、规则判断） | `{领域}.service.js` | `auth.service.js` |
 | `src/middlewares/` | Express 中间件 | `{关注点}.middleware.js` | `session.middleware.js` |
-| `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）、跨领域的基础能力（Session、限流、发邮件、验证码），或某张表的纯数据访问层（Repository） | 裸名词，不带角色后缀；Repository 用 `{表对应的领域}Repository.js` | `db.js`、`redis.js`、`session.js`、`mailer.js`、`captcha.js`、`rateLimit.js`、`userRepository.js` |
+| `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）、跨领域的基础能力（Session、限流、发邮件、验证码、Cookie 读写），或某张表的纯数据访问层（Repository） | 裸名词，不带角色后缀；Repository 用 `{表对应的领域}Repository.js` | `db.js`、`redis.js`、`session.js`、`cookie.js`、`mailer.js`、`captcha.js`、`rateLimit.js`、`userRepository.js` |
 | `src/utils/` | 不依赖外部基础设施的纯函数（ID 生成、格式校验） | 裸名词，不带角色后缀 | `id.js`、`validator.js` |
 | `src/config/` | 配置加载、业务规则常量、面向用户的文案模板（邮件、短信这类"会变的策略性内容"，design-principles.md 二） | 裸名词；`index.js` 作为聚合入口；文案模板用 `{渠道}Templates.js` | `env.js`、`index.js`、`emailTemplates.js` |
 | `src/scripts/` | 独立运维脚本（命令行或定时任务启动，不经过 HTTP 路由） | 裸名词，不带角色后缀 | `migrate.js` |
@@ -31,9 +31,9 @@
 
 ### 2.2 `lib/` 与 `utils/` 的区分标准
 
-两者外观很像（都是裸名词、不带后缀），区分标准是**是否直接接触外部基础设施**：
-- `lib/`：内部会连接数据库、Redis、调用第三方服务（即使目前是打桩）——`db.js`/`redis.js` 是连接，`session.js`/`mailer.js`/`captcha.js`/`rateLimit.js` 是基于 Redis 或第三方 API 的能力封装
-- `utils/`：纯计算，不发任何网络请求、不读写任何外部状态——`id.js`（生成 ID）、`validator.js`（格式校验）
+两者外观很像（都是裸名词、不带后缀），区分标准是**是否有 I/O 或副作用**（接触外部基础设施、或改动 HTTP 请求/响应这类进程外状态）：
+- `lib/`：内部会连接数据库、Redis、调用第三方服务（即使目前是打桩），或对 HTTP 响应产生副作用——`db.js`/`redis.js` 是连接，`session.js`/`mailer.js`/`captcha.js`/`rateLimit.js` 是基于 Redis 或第三方 API 的能力封装，`cookie.js` 封装的是"往 `res` 上种/清 Cookie"（不碰基础设施，但会写响应头，不是纯计算）
+- `utils/`：纯计算，不发任何网络请求、不读写任何外部状态、不碰 `req`/`res`——`id.js`（生成 ID）、`validator.js`（格式校验）
 
 数据访问层（Repository，比如 `userRepository.js`）也属于 `lib/`，因为它直接接触数据库——跟 `db.js` 是同一类东西，只是 `db.js` 封装的是"连接本身"，Repository 封装的是"某张表的读写"。Repository 里只放没有业务规则判断的纯查询/写入（比如"按 id 查用户"），任何带业务判断的逻辑（比如"这个用户名是否可用"，牵扯冷却期、频率限制这些规则）都不下沉，留在 service 层。
 
@@ -68,6 +68,12 @@
 ### 2.6 接口文档
 
 项目接入了 Swagger/OpenAPI（`swagger-jsdoc` 生成规范 + Scalar `@scalar/express-api-reference` 渲染页面，代码优先流派，配置见 `src/lib/swagger.js`）。**新增或修改 `src/routes/` 下的接口时，必须同步补充/更新对应的 `@swagger` JSDoc 注释**，写在 `router.xxx(...)` 定义的正上方，跟着改，不要等攒够一批再回来补——这是为了不出现"接口加了但文档没更新"的情况。文档只在本地开发环境启用（`NODE_ENV=development` 时），访问方式见根目录 `README.md`。
+
+### 2.7 Session Cookie 的读写统一走 `src/lib/cookie.js`
+
+种 / 清 Session Cookie **只能**通过 `lib/cookie.js` 的 `setSessionCookie(res, sessionId, ttlSec)` 和 `clearSessionCookie(res)`，不要在路由或中间件里直接 `res.cookie(config.cookie.name, ...)` / `res.clearCookie(...)`。
+
+原因：浏览器清除 Cookie 靠"同名 + 标识性属性（`httpOnly` / `sameSite` / `secure` / `path`）完全一致"来匹配，只有 `expires` / `maxAge` 例外。设置和清除分散在多个文件里各写一份属性，迟早会漂移，导致"登出了但 Cookie 没清掉"这种隐蔽 bug。收在一个模块里，属性只有一处定义。`secure` 的取值由 `COOKIE_SECURE` 决定（见 `docs/decisions.md` ADR-011）。
 
 ---
 
@@ -181,6 +187,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/lib/db.js` | 不变 | |
 | `src/lib/redis.js` | 不变 | |
 | `src/lib/session.js` | 不变 | |
+| `src/lib/cookie.js` | 不变 | 新增，见 2.7；Session Cookie 种/清的统一入口，设置与清除共用一套标识性属性 |
 | `src/lib/mailer.js` | 不变 | |
 | `src/lib/captcha.js` | 不变 | |
 | `src/lib/rateLimit.js` | 不变 | |
@@ -224,4 +231,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 24 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，接口文档见 2.6。
+**总结**：后端 25 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，`src/lib/cookie.js` 是新增的 Session Cookie 读写统一入口（见 2.7），接口文档见 2.6。

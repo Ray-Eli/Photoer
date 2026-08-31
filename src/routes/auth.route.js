@@ -5,6 +5,7 @@ const validator = require('../utils/validator');
 const config = require('../config');
 const { checkAndIncr } = require('../lib/rateLimit');
 const { verifyCaptcha } = require('../lib/captcha');
+const { setSessionCookie, clearSessionCookie } = require('../lib/cookie');
 const { requireAuth } = require('../middlewares/session.middleware');
 
 const router = express.Router();
@@ -42,16 +43,6 @@ function requestMeta(req) {
   };
 }
 
-function cookieOptions(ttlSec) {
-  return {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.cookie.secure,
-    maxAge: ttlSec * 1000,
-    path: '/',
-  };
-}
-
 // 密码登录、验证码登录成功/失败后的响应逻辑是一样的（都会走到 checkAccountStatus），抽出来复用
 function respondAuthResult(res, result, invalidMessage) {
   if (!result.ok) {
@@ -64,7 +55,7 @@ function respondAuthResult(res, result, invalidMessage) {
     return res.status(401).json({ error: invalidMessage });
   }
 
-  res.cookie(config.cookie.name, result.sessionId, cookieOptions(result.ttl));
+  setSessionCookie(res, result.sessionId, result.ttl);
   res.json({ message: '登录成功', user: result.user });
 }
 
@@ -188,7 +179,7 @@ router.post('/register/verify', async (req, res) => {
 
     const result = await authService.verifyRegister({ token, code }, requestMeta(req));
 
-    res.cookie(config.cookie.name, result.sessionId, cookieOptions(result.ttl));
+    setSessionCookie(res, result.sessionId, result.ttl);
     res.status(201).json({ message: '注册成功', user: result.user });
   } catch (err) {
     if (['EXPIRED', 'TOO_MANY_ATTEMPTS', 'INVALID_CODE'].includes(err.code)) {
@@ -562,7 +553,7 @@ router.post('/forgot-password/reset', async (req, res) => {
 
     const result = await authService.resetPassword({ token, newPassword }, requestMeta(req));
 
-    res.cookie(config.cookie.name, result.sessionId, cookieOptions(result.ttl));
+    setSessionCookie(res, result.sessionId, result.ttl);
     res.json({ message: '密码重置成功', user: result.user });
   } catch (err) {
     if (err.code === 'BANNED') {
@@ -768,7 +759,7 @@ router.post('/delete-account', requireAuth, async (req, res) => {
 
     await authService.deleteAccount(req.user.id, { password });
 
-    res.clearCookie(config.cookie.name);
+    clearSessionCookie(res);
     res.json({ message: '账号已注销' });
   } catch (err) {
     if (err.code === 'INVALID_PASSWORD') {
@@ -805,7 +796,7 @@ router.post('/delete-account', requireAuth, async (req, res) => {
  */
 router.post('/logout', requireAuth, async (req, res) => {
   await authService.logout(req.sessionId);
-  res.clearCookie(config.cookie.name);
+  clearSessionCookie(res);
   res.json({ message: '已退出登录' });
 });
 

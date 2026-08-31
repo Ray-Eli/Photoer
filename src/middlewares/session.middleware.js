@@ -1,5 +1,6 @@
 const config = require('../config');
 const sessionLib = require('../lib/session');
+const { clearSessionCookie } = require('../lib/cookie');
 
 function parseCookies(req) {
   const header = req.headers.cookie;
@@ -36,7 +37,7 @@ async function loadSession(req, res, next) {
   try {
     const session = await sessionLib.getSession(sessionId);
     if (!session) {
-      res.clearCookie(config.cookie.name);
+      clearSessionCookie(res);
       req.sessionId = null;
       return next();
     }
@@ -46,7 +47,7 @@ async function loadSession(req, res, next) {
 
     if (Date.now() - createdAt > limit) {
       await sessionLib.destroySession(sessionId);
-      res.clearCookie(config.cookie.name);
+      clearSessionCookie(res);
       req.sessionId = null;
       return next();
     }
