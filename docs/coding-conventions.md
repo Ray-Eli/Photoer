@@ -141,7 +141,32 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 
 ---
 
-## 五、现有文件对照表
+## 五、环境变量文件命名（根目录 `.env.*`）
+
+环境变量文件跟 `migrations/` 一样，不属于 `src/` 或 `web/` 任何一边，放在仓库根目录，单独定规则。设计背景见 `docs/decisions.md` ADR-011。
+
+### 5.1 命名格式
+
+```
+.env.{环境名}
+```
+
+- **环境名**取自 `NODE_ENV`，且只有四个合法值：`development` / `test` / `staging` / `production`。`src/config/env.js` 按 `NODE_ENV` 拼出 `.env.<NODE_ENV>` 去加载，文件名后缀必须和 `NODE_ENV` 逐字符一致
+- **不使用无后缀的 `.env`**：旧方案用裸 `.env` 靠"在哪台机器上"区分环境，已废弃。现在每个环境都有明确后缀，一台机器上可以并存多个环境的配置文件而不冲突
+- **`.env.example` 是唯一进 Git 的**：配置模板，列全所有配置项名称，值留空或占位，不含任何真实密钥。`.gitignore` 用 `!.env.example` 把它从 `.env.*` 的忽略规则里排除
+- 所有真实配置文件（`.env.development` 等）一律不进 Git
+
+### 5.2 新增配置项时
+
+四个环境文件之间没有继承/合并机制。**新增一个配置项，要同步改到 `.env.example` 以及所有实际用到的环境文件**（本地的自己改，服务器上的 `.env.staging` / `.env.production` 需要手动上服务器改）。`.env.example` 是这份清单的唯一权威来源，加了项一定要更新它，否则别人 clone 下来照着建配置会缺项。
+
+### 5.3 新增环境时
+
+要加第五个环境（假设叫 `demo`），至少改三处：`src/config/env.js` 里的 `VALID_ENVS` 数组、`package.json` 的相关脚本、`README.md` 的环境对照表，并新建 `.env.demo`。白名单是刻意设的门槛——加环境应当慎重。
+
+---
+
+## 六、现有文件对照表
 
 全部文件当前路径与上述规范的核对结果，包括本来就合规、以及已按规范调整过的文件。
 
@@ -150,7 +175,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | 当前路径 | 新规范下的路径 | 备注 |
 |---|---|---|
 | `src/index.js` | 不变 | |
-| `src/config/env.js` | 不变 | |
+| `src/config/env.js` | 不变 | 路径不变；加载逻辑按 ADR-011 重写为"按 `NODE_ENV` 读 `.env.<环境>`，缺失/非法/文件不存在即报错退出" |
 | `src/config/index.js` | 不变 | |
 | `src/config/emailTemplates.js` | 不变 | 新增，邮件文案集中管理，从各 service 里的硬编码字符串抽取而来 |
 | `src/lib/db.js` | 不变 | |

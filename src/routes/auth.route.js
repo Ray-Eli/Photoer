@@ -46,7 +46,7 @@ function cookieOptions(ttlSec) {
   return {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: config.cookie.secure,
     maxAge: ttlSec * 1000,
     path: '/',
   };

@@ -5,11 +5,14 @@
   "main": "src/index.js",
   "scripts": {
     "start": "cross-env NODE_ENV=development node src/index.js",
-    "start:test": "cross-env NODE_ENV=test node src/index.js",
-    "migrate": "node src/scripts/migrate.js",
+    "start:staging": "cross-env NODE_ENV=staging node src/index.js",
+    "start:prod": "cross-env NODE_ENV=production node src/index.js",
+    "migrate": "cross-env NODE_ENV=development node src/scripts/migrate.js",
+    "migrate:status": "cross-env NODE_ENV=development node src/scripts/migrate.js status",
+    "migrate:rollback": "cross-env NODE_ENV=development node src/scripts/migrate.js rollback",
     "migrate:test": "cross-env NODE_ENV=test node src/scripts/migrate.js",
-    "migrate:status": "node src/scripts/migrate.js status",
-    "migrate:rollback": "node src/scripts/migrate.js rollback",
+    "migrate:staging": "cross-env NODE_ENV=staging node src/scripts/migrate.js",
+    "migrate:prod": "cross-env NODE_ENV=production node src/scripts/migrate.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

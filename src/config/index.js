@@ -1,3 +1,17 @@
+// Cookie 的 secure 标志由独立配置项 COOKIE_SECURE 决定，不再绑定 NODE_ENV。
+// 真正的决定因素是"这个环境有没有 HTTPS"，跟环境类型没有必然关系。见 docs/decisions.md ADR-011。
+// 缺失或值非法时按 true 处理——往安全一侧失败：忘配置的后果是"HTTP 下登不上，立刻发现"，
+// 而不是"线上少了 secure 标志，永远发现不了"。.env 读出来是字符串，只认精确的 'true' / 'false'。
+function resolveCookieSecure() {
+  const raw = process.env.COOKIE_SECURE;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (raw !== undefined) {
+    console.warn(`[config] COOKIE_SECURE 的值 "${raw}" 无法识别（只接受 "true" / "false"），按 true 处理`);
+  }
+  return true;
+}
+
 module.exports = {
   username: {
     minLength: 3,
@@ -34,6 +48,7 @@ module.exports = {
 
   cookie: {
     name: 'sid',
+    secure: resolveCookieSecure(),
   },
 
   rateLimit: {

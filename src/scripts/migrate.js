@@ -150,7 +150,7 @@ async function status() {
         const executed = await getExecuted(conn);
 
         console.log(`数据库：${process.env.DB_NAME}`);
-        console.log(`环境：${process.env.NODE_ENV || 'development'}\n`);
+        console.log(`环境：${process.env.NODE_ENV}\n`);
 
         if (all.length === 0) {
             console.log('还没有任何迁移文件');

@@ -18,15 +18,42 @@ cd web
 npm run dev
 ```
 
-前端固定跑在 `http://localhost:3000`，后端跑在 `.env` 里 `PORT` 指定的端口（当前是 3001）。浏览器只需要访问前端的 3000，前端会把 `/api/*` 请求自动代理到后端，不会有跨域问题（配置在 `web/next.config.mjs`）。
+前端固定跑在 `http://localhost:3000`，后端跑在 `.env.development` 里 `PORT` 指定的端口（当前是 3001）。浏览器只需要访问前端的 3000，前端会把 `/api/*` 请求自动代理到后端，不会有跨域问题（配置在 `web/next.config.mjs`）。
 
 **接口文档**：后端用 `npm start` 启动后（会自动设置 `NODE_ENV=development`），访问 `http://localhost:3001/api-docs` 能看到完整的 Swagger 接口文档，包含每个接口的参数、响应结构、错误码说明，页面上可以直接 "Try it out" 试调。这个文档只在本地开发环境启用，测试服/正式服访问这个路径会得到 404（不会注册这个路由，不是权限拦截）。
 
+## 环境与配置
+
+后端区分四个环境，每个环境一个独立的配置文件 `.env.<环境>`。`src/config/env.js` 按 `NODE_ENV` 的值加载对应文件——**`NODE_ENV` 未设置、值非法、或对应文件不存在，程序会直接报错退出，不会带着空配置继续跑**（设计理由见 `docs/decisions.md` ADR-011）。
+
+| 环境 | 配置文件 | `NODE_ENV` | 所在机器 | 启动方式 | 接口文档 |
+|---|---|---|---|---|---|
+| 本地开发 | `.env.development` | `development` | 开发者本机 | `npm start` | 开启（`/api-docs`） |
+| 自动化测试 | `.env.test` | `test` | 开发者本机 | `npm test`（测试框架待建） | 关闭 |
+| 测试服 | `.env.staging` | `staging` | 服务器 `/www/wwwroot/Photoer-test/` | pm2 / 宝塔进程配置（应急时 `npm run start:staging`） | 关闭 |
+| 正式服 | `.env.production` | `production` | 服务器 `/www/wwwroot/Photoer/` | pm2 / 宝塔进程配置（应急时 `npm run start:prod`） | 关闭 |
+
+> `start:staging` / `start:prod` 仅供应急手动启动。服务器上的常规启动走 pm2 / 宝塔的进程配置（由它负责设置 `NODE_ENV` 并常驻保活），不要用 npm 脚本起线上服务。
+
+配置文件都不进 Git（`.gitignore` 忽略 `.env.*`）。仓库里只有一份模板 `.env.example`，列全所有配置项。
+
+**首次初始化本地配置**：
+
+```bash
+cp .env.example .env.development
+# 编辑 .env.development，至少填入：
+#   NODE_ENV=development
+#   COOKIE_SECURE=false          # 本地是 HTTP，必须 false，否则登录 Cookie 种不上
+#   DB_* / REDIS_* / PORT        # 按本机的 MySQL、Redis 实际情况填
+```
+
+`COOKIE_SECURE` 控制 Session Cookie 的 `Secure` 标志，独立于 `NODE_ENV`（真正的决定因素是环境有没有 HTTPS）。缺失或值非法时按 `true` 处理——往安全一侧失败。
+
 ## 初始化步骤
 
-1. 复制 `.env` 所需的配置项（`DB_HOST`/`DB_USER`/`DB_PASSWORD`/`DB_NAME`、`PORT`、`REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`/`REDIS_DB`），本地需要有可用的 MySQL 和 Redis
+1. 准备本地配置：`cp .env.example .env.development`，按上面「环境与配置」的说明填入真实值（`NODE_ENV`/`COOKIE_SECURE`/`DB_*`/`PORT`/`REDIS_*`），本地需要有可用的 MySQL 和 Redis
 2. 安装依赖：根目录 `npm install`，`web/` 目录下再 `npm install`
-3. 执行数据库迁移：`npm run migrate`（`npm run migrate:status` 查看迁移状态，`npm run migrate:rollback` 回滚最后一次）
+3. 执行数据库迁移：`npm run migrate`（`npm run migrate:status` 查看迁移状态，`npm run migrate:rollback` 回滚最后一次）。这三条都绑定 `development` 环境；其他环境用 `npm run migrate:test` / `migrate:staging` / `migrate:prod`，`status` / `rollback` 对非 development 环境用原始形式 `cross-env NODE_ENV=<环境> node src/scripts/migrate.js status`
 4. 按上面"技术栈"里的两条命令分别启动前后端
 
 ## 目录结构

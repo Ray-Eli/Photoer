@@ -194,10 +194,51 @@ XSS 危害更大（一旦得手能做的远不止盗 token），且 CSRF 有成�
 
 ---
 
+## ADR-011：环境变量配置体系（四环境 + NODE_ENV 强校验 + COOKIE_SECURE 独立）
+
+**日期**：2026-08-31
+
+**背景**：项目要区分四个环境（本地开发、自动化测试、测试服、正式服）。旧方案是"本地和正式服都叫 `.env`，靠在哪台机器上来区分"，且 `src/config/env.js` 的加载逻辑是"`NODE_ENV === 'test'` 读 `.env.test`，否则读 `.env`"——`NODE_ENV` 同时承担了"加载哪个配置文件"和"运行时行为开关"两个职责，测试服这种"既不是 development 也不完全等同 production"的环境无处安放。
+
+**决策**：
+
+1. 四个环境各一个独立配置文件：`.env.development` / `.env.test` / `.env.staging` / `.env.production`，全部不进 Git。仓库只留一份模板 `.env.example`。
+2. `src/config/env.js` 按 `NODE_ENV` 读取 `.env.<NODE_ENV>`。**`NODE_ENV` 缺失、值不在四个合法值之内、或对应文件不存在，一律 `console.error` + `process.exit(1)`，不做任何 fallback。**
+3. Cookie 的 `secure` 标志从 `NODE_ENV` 解耦，改由独立配置项 `COOKIE_SECURE`（字符串 `'true'` / `'false'`）决定。**缺失或值非法时按 `true` 处理。**
+
+**理由**：
+
+**① 为什么 `NODE_ENV` 缺失时报错而不是 fallback**
+
+看起来"默认一个安全的值（比如 production）"更省事，但静默 fallback 正是旧方案的问题根源：部署时忘记设 `NODE_ENV`，服务照常起、功能照常用，只是**加载了错误的配置文件却没有任何提示**。等到发现（往往是连错了数据库、或线上行为不对）已经造成影响。
+
+报错退出的代价是"忘记配置时服务起不来"，但这个代价是**立即、明确、指向性强**的（错误信息直接说"NODE_ENV 未设置，可选值 xxx"）。用启动失败换掉一类"看不见的错配"，是划算的。
+
+配四个合法值的白名单（而不是只检查文件是否存在），是为了让 `NODE_ENV=prod` 这种手滑能报"prod 不是合法环境，可选 production"，比"找不到 .env.prod"更快定位。代价是以后加第五个环境要记得改这个数组——但加环境本来就该慎重，多一道确认合理。
+
+**② 为什么 `COOKIE_SECURE` 独立于 `NODE_ENV`，且缺失时默认 `true`**
+
+`secure` 该不该开，真正的决定因素是"这个环境有没有 HTTPS"，跟"这是什么类型的环境"没有必然关系——测试服可能先上 HTTP 后上 HTTPS，正式服在 Nginx 反代后面。用 `NODE_ENV === 'production'` 表达这件事，语义是错位的，而且以后测试服上了 HTTPS 还得回来改代码。独立配置项把这层语义讲清楚，改环境只改一行配置。
+
+默认值选 `true` 而不是 `false`，是让"忘记配置"往安全的一侧失败：
+- 默认 `true`：本地忘了在 `.env.development` 里写 `COOKIE_SECURE=false` → 本地是 HTTP，Cookie 种不上 → **登录立刻失效，马上会发现并修正**。
+- 默认 `false`：正式服忘了写 `COOKIE_SECURE=true` → 服务照常、登录照常 → **线上 Session Cookie 静默地少了 `Secure` 标志，可能永远发现不了**。
+
+这和 ADR-010 里 Swagger 文档"白名单、失败到安全一侧"是同一条原则。注意 `.env` 读出来的值都是字符串，`'false'` 是 truthy 的，代码里只认精确的 `'true'` / `'false'` 两个字面量，其余（含空值、拼写错误）都归为 `true`。
+
+**代价**：
+
+- 本地首次 clone 后必须先 `cp .env.example .env.development` 并填值，且必须记得写 `COOKIE_SECURE=false`，否则登不上。
+- 四个环境四个文件，配置项增删时要四个地方（加上 `.env.example`）都改，没有继承/合并机制。当前项目规模下可接受，配置项多起来再考虑分层。
+- 白名单数组是新增的维护点（加环境要同步改 `src/config/env.js`）。
+
+**关联**：文件命名规范补充进 `docs/coding-conventions.md`；四环境对照表和初始化步骤见 `README.md`。
+
+---
+
 ## 已知问题 / 技术债
 
 记录已经发现、但暂时不处理的问题，避免遗忘。
 
 - **生产环境部署方式尚未落地**：Nginx 反代、pm2 常驻、HTTPS 证书配置目前都只停留在讨论阶段，仓库里没有任何对应的部署脚本/配置文件。计划等域名 ICP 备案完成后再启动。
-- **`.env` 里的 `JWT_SECRET` 是遗留字段**：认证方案已经从 JWT 改为 Session（ADR-003），代码中已不再使用 `jsonwebtoken`，这个配置项可以清理掉。
 - **根路径 `GET /` 返回的是开发早期留下的提示文案**：`src/index.js` 里 `GET /` 目前返回中文提示"Hello, 服务器已经跑起来了！"，这个响应在生产环境同样存在，会向访问者确认"这里有一个活着的服务"，且不够专业。等做生产环境部署配置时一并处理——可选方案是改成标准的健康检查响应（如 `{"status":"ok"}`），或直接移除让其返回 404。
