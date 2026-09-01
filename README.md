@@ -73,7 +73,7 @@ cp .env.example .env.development
 
 ## 测试
 
-后端用 Node 内置的 **`node:test`** 跑测试，HTTP 接口集成测试用 **`supertest`**。测试代码在 `test/`，规范见 `docs/coding-conventions.md` 六。
+后端用 Node 内置的 **`node:test`** 跑测试，HTTP 接口集成测试用 **`supertest`**。测试代码在 `test/`，规范见 `docs/coding-conventions.md` 六。账号系统的 17 个接口已有完整集成测试（`test/integration/`）+ `validator` 的单元测试，约 100 个用例。
 
 ### 首次初始化测试环境（换台机器必做）
 
@@ -92,9 +92,10 @@ cp .env.example .env.development
 ```bash
 npm test           # 跑一次全部
 npm run test:watch # 改文件自动重跑
+NODE_ENV=test node --test --experimental-test-coverage --test-global-setup=./test/global-setup.js "test/**/*.test.js"  # 带覆盖率
 ```
 
-- 每个用例开始前会清空测试库和测试 Redis（db 15），用例之间互不影响。
+- 每个用例开始前会清空测试库和测试 Redis（db 15），用例之间互不影响。测试文件串行执行（`--test-concurrency=1`），因为共用一个测试库。
 - **安全保险**：测试启动时会校验当前连的是不是 `photoer_test` / Redis db 15，不是就直接报错退出——防止 `TRUNCATE` / `FLUSHDB` 打到开发库或线上库。
 - **提交前自动跑测试**：`.githooks/pre-commit` 会在 `git commit` 时跑 `npm test`，失败则阻止提交。`npm install` 时通过 `prepare` 脚本自动启用（`git config core.hooksPath .githooks`），换机器不用手动配。应急跳过：`git commit --no-verify`。
 

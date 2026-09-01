@@ -184,13 +184,16 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 |---|---|
 | `test/unit/` | 单元测试：纯函数 / 单模块，不碰数据库、Redis、HTTP |
 | `test/integration/` | 集成测试：走 `supertest` 打真实路由，连测试库和测试 Redis |
-| `test/helpers/` | 测试专用工具（安全保险、清理、读验证码、拿 app 等），**不是测试文件** |
+| `test/helpers/` | 测试专用工具（安全保险、清理、读验证码、造数据、拿 app 等），**不是测试文件** |
 | `test/global-setup.js` | 全局 setup：安全检查 + 用 `migrations/` 建测试库表结构，跑一次 |
+
+helper 各司其职：`guard`（安全保险）、`reset`（逐用例清库）、`harness`（一行注册清理 + 收尾钩子）、`app`（取 Express app）、`codes`（从 Redis 读验证码）、`factory`（直接写库造用户 + 建会话，用于"前置条件是一个已存在/已登录用户"的场景）。
 
 ### 6.2 命名
 
-- 测试文件一律 `{被测对象}.test.js`——`validator.test.js`、`me.test.js`、`register-flow.test.js`。集成测试按「接口」或「流程」命名，不必和某个源文件一一对应
+- 集成测试文件按「接口分组」命名 `{领域}.test.js`——`register.test.js`、`login-code.test.js`、`change-email.test.js`、`sessions.test.js`、`profile.test.js` 等，一个文件覆盖一组相关接口的全部用例，不和单个源文件一一对应。单元测试按被测模块命名 `{模块}.test.js`
 - `npm test` 用显式 glob `test/**/*.test.js` 圈定测试文件，所以 `test/helpers/` 里的 `.js` 不会被当成测试跑——helper 用裸名词命名（`guard.js`、`reset.js`），跟后端 `src/` 的风格一致
+- 集成测试内部用 `describe('<HTTP 方法 + 路径>')` 分组，用例名描述「输入条件 -> 期望结果」
 
 ### 6.3 几条硬性约定
 
@@ -199,10 +202,13 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 - **每个用例前清空测试库和测试 Redis**（`beforeEach(resetAll)`），用例之间零耦合，不依赖执行顺序
 - **安全保险不能绕过**：任何直接连库/Redis 的 helper 第一步先过 `test/helpers/guard.js`
 
-### 6.4 新增功能是否要补测试
+### 6.4 新增功能必须同步补测试
 
-- **当前（自动化测试刚起步）**：不强制。第一阶段只有基础设施 + 3 个样例用例，第二阶段补齐现有 17 个接口
-- **第二阶段完成后改为强制**：新增或修改 `src/routes/` 下的接口，必须同步加/改对应的集成测试，跟 2.6 的接口文档注释同级要求——到时回来更新本节
+账号系统现有 17 个接口的集成测试已补齐（`test/integration/`，约 100 个用例）。从现在起：
+
+- **新增或修改 `src/routes/` 下的接口，必须同步加 / 改对应的集成测试**——跟 2.6 的 `@swagger` 注释同级要求，跟着改，不要攒批。集成测试至少覆盖：happy path、鉴权失败（该登录的 401）、主要的输入校验失败、以及该接口涉及的安全属性（如"不泄露账号存在性"要断言"存在"与"不存在"两种输入的响应完全一致）
+- 新增 `src/utils/` / `src/lib/` 里的纯逻辑，补对应的单元测试
+- 提交前钩子（`.githooks/pre-commit`）会跑全量测试，测试不过提交不了
 
 ---
 
