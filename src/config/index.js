@@ -54,6 +54,8 @@ module.exports = {
   rateLimit: {
     login:    { windowMin: 15, max: 30 },
     register: { windowMin: 15, max: 20 },
+    // 用户名可用性检查：仅防批量扫描。真人边输边查，1 分钟 20 次足够宽松
+    usernameCheck: { windowMin: 1, max: 20 },
   },
 
   reservedUsernames: [

@@ -1,5 +1,6 @@
-// PUT /api/auth/username   改用户名（冷却期/占用判断 + 滚动 365 天 2 次频率限制）
-// PUT /api/auth/nickname   改昵称（滚动 14 天 2 次频率限制）
+// GET /api/auth/username/check   用户名可用性检查（供前端实时提示）
+// PUT /api/auth/username         改用户名（冷却期/占用判断 + 滚动 365 天 2 次频率限制）
+// PUT /api/auth/nickname         改昵称（滚动 14 天 2 次频率限制）
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
@@ -11,9 +12,95 @@ const { loggedInUser, createUser } = require('../helpers/factory');
 
 useCleanState();
 
+describe('GET /api/auth/username/check', () => {
+  test('未登录 -> 401', async () => {
+    assert.equal((await request(app).get('/api/auth/username/check?username=foo')).status, 401);
+  });
+
+  test('全新的合法用户名 -> available: true', async () => {
+    const me = await loggedInUser();
+    const res = await request(app).get('/api/auth/username/check?username=brandnew01').set('Cookie', me.cookie);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { available: true });
+  });
+
+  test('与当前用户名相同（含大小写不敏感）-> available:false, reason:current', async () => {
+    const me = await loggedInUser({ username: 'currentname' });
+    const same = await request(app).get('/api/auth/username/check?username=currentname').set('Cookie', me.cookie);
+    assert.deepEqual(same.body, { available: false, reason: 'current' });
+    const cased = await request(app).get('/api/auth/username/check?username=CurrentName').set('Cookie', me.cookie);
+    assert.deepEqual(cased.body, { available: false, reason: 'current' });
+  });
+
+  test('已被他人占用 -> available:false, reason:taken', async () => {
+    await createUser({ username: 'occupied01' });
+    const me = await loggedInUser();
+    const res = await request(app).get('/api/auth/username/check?username=occupied01').set('Cookie', me.cookie);
+    assert.deepEqual(res.body, { available: false, reason: 'taken' });
+  });
+
+  test('90 天冷却期内被他人释放的名字 -> reason:taken', async () => {
+    const me = await loggedInUser();
+    const other = await createUser({ username: 'user_o1' });
+    await pool.query(
+      `INSERT INTO username_history (user_id, username, released_at, locked_forever, created_at)
+       VALUES (?, 'cooldownname', DATE_SUB(NOW(), INTERVAL 5 DAY), 0, DATE_SUB(NOW(), INTERVAL 5 DAY))`,
+      [other.userId]
+    );
+    const res = await request(app).get('/api/auth/username/check?username=cooldownname').set('Cookie', me.cookie);
+    assert.deepEqual(res.body, { available: false, reason: 'taken' });
+  });
+
+  test('格式不合法 / 保留词 -> available:false, reason:invalid', async () => {
+    const me = await loggedInUser();
+    for (const bad of ['ab', '123456', 'a-b', 'admin']) {
+      const res = await request(app).get(`/api/auth/username/check?username=${bad}`).set('Cookie', me.cookie);
+      assert.deepEqual(res.body, { available: false, reason: 'invalid' }, `${bad}`);
+    }
+  });
+
+  test('限流：同 IP 1 分钟内超过 20 次 -> 429', async () => {
+    const me = await loggedInUser();
+    let got429 = false;
+    for (let i = 0; i < 25; i++) {
+      const r = await request(app).get(`/api/auth/username/check?username=name${i}abc`).set('Cookie', me.cookie);
+      if (r.status === 429) { got429 = true; break; }
+    }
+    assert.ok(got429, '连续检查应在某次触发 429');
+  });
+});
+
 describe('PUT /api/auth/username', () => {
   test('未登录 -> 401', async () => {
     assert.equal((await request(app).put('/api/auth/username').send({ username: 'whatever' })).status, 401);
+  });
+
+  test('提交与当前完全相同的用户名 -> 200 未做修改，不消耗次数、不写历史', async () => {
+    const me = await loggedInUser({ username: 'user_keep01' });
+
+    const noop = await request(app).put('/api/auth/username').set('Cookie', me.cookie).send({ username: 'user_keep01' });
+    assert.equal(noop.status, 200);
+    assert.match(noop.body.message, /未做修改|一致/);
+    assert.equal(noop.body.username, 'user_keep01');
+
+    // 没有写 username_history
+    const [[{ n }]] = await pool.query('SELECT COUNT(*) n FROM username_history WHERE user_id = ?', [me.userId]);
+    assert.equal(n, 0);
+
+    // 没消耗次数：之后还能正常改满 2 次
+    const r1 = await request(app).put('/api/auth/username').set('Cookie', me.cookie).send({ username: 'realchange1' });
+    const r2 = await request(app).put('/api/auth/username').set('Cookie', me.cookie).send({ username: 'realchange2' });
+    assert.equal(r1.status, 200);
+    assert.equal(r2.status, 200);
+  });
+
+  test('大小写不同但视为相同 -> 同样是未做修改', async () => {
+    const me = await loggedInUser({ username: 'MixedCase1' });
+    const res = await request(app).put('/api/auth/username').set('Cookie', me.cookie).send({ username: 'mixedcase1' });
+    assert.equal(res.status, 200);
+    assert.match(res.body.message, /未做修改|一致/);
+    const [[{ n }]] = await pool.query('SELECT COUNT(*) n FROM username_history WHERE user_id = ?', [me.userId]);
+    assert.equal(n, 0);
   });
 
   test('合法且可用 -> 200，users.username 更新，写一条 username_history', async () => {

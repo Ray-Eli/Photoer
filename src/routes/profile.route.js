@@ -1,9 +1,78 @@
 const express = require('express');
 const profileService = require('../services/profile.service');
 const validator = require('../utils/validator');
+const { findUserById } = require('../lib/userRepository');
 const { requireAuth } = require('../middlewares/session.middleware');
+const { rateLimit } = require('../middlewares/rateLimit.middleware');
 
 const router = express.Router();
+
+/**
+ * @swagger
+ * /api/auth/username/check:
+ *   get:
+ *     tags: [个人资料]
+ *     summary: 检查用户名是否可用（供前端实时提示）
+ *     description: |
+ *       返回目标用户名当前能不能用。**会暴露"某个用户名是否已被注册"——这是可以接受的**：
+ *       用户名本来就是公开的（主页 URL 是 `/@username`，任何人可访问），需要保护的是邮箱这类
+ *       登录凭证，不是用户名。GitHub、Twitter 也都提供同类接口。为防批量扫描，此接口有 IP 限流。
+ *
+ *       `reason` 取值：
+ *       - `current`：就是你当前的用户名。前端应据此显示"这是你当前的用户名"并置灰保存按钮
+ *       - `invalid`：格式不合法或命中保留词
+ *       - `taken`：已被占用 / 在 90 天冷却期内 / 被永久锁定（三种合并，不区分，避免过度暴露）
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: username
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: 检查结果（无论可用与否都是 200）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 available: { type: boolean }
+ *                 reason:
+ *                   type: string
+ *                   enum: [current, invalid, taken]
+ *                   description: 仅 available=false 时出现
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       429:
+ *         description: 检查过于频繁（同一 IP 1 分钟内超过 20 次），疑似批量扫描
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+router.get('/username/check', requireAuth, rateLimit('usernameCheck'), async (req, res) => {
+  try {
+    const username = typeof req.query.username === 'string' ? req.query.username : '';
+
+    const user = await findUserById(req.user.id);
+    if (user && username.toLowerCase() === user.username.toLowerCase()) {
+      return res.json({ available: false, reason: 'current' });
+    }
+
+    if (!validator.validateUsername(username).valid) {
+      return res.json({ available: false, reason: 'invalid' });
+    }
+
+    const ok = await profileService.isUsernameAvailable(username, req.user.id);
+    return res.json(ok ? { available: true } : { available: false, reason: 'taken' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '操作失败，请稍后重试' });
+  }
+});
 
 /**
  * @swagger
@@ -33,7 +102,9 @@ const router = express.Router();
  *                 description: 3-20字符，仅字母/数字/下划线，不能是纯数字，大小写不敏感
  *     responses:
  *       200:
- *         description: 修改成功
+ *         description: |
+ *           修改成功；或提交的用户名与当前完全相同——此时不算修改，`message` 为"用户名与当前一致，未做修改"，
+ *           不消耗改名次数、不产生历史记录（前端一般应在提交前用 `/username/check` 拦掉这种情况）
  *         content:
  *           application/json:
  *             schema:
@@ -64,6 +135,9 @@ router.put('/username', requireAuth, async (req, res) => {
     }
 
     const result = await profileService.changeUsername(req.user.id, username);
+    if (result.unchanged) {
+      return res.json({ message: '用户名与当前一致，未做修改', username: result.username });
+    }
     res.json({ message: '用户名修改成功', username: result.username });
   } catch (err) {
     if (['UNAVAILABLE', 'RATE_LIMITED'].includes(err.code)) {

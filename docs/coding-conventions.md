@@ -22,9 +22,9 @@
 |---|---|---|---|
 | `src/routes/` | Express 路由定义（只做请求解析、调用 service、返回响应） | `{领域}.route.js` | `auth.route.js` |
 | `src/services/` | 业务逻辑（数据库/Redis 读写、规则判断） | `{领域}.service.js` | `auth.service.js` |
-| `src/middlewares/` | Express 中间件 | `{关注点}.middleware.js` | `session.middleware.js` |
+| `src/middlewares/` | Express 中间件 | `{关注点}.middleware.js` | `session.middleware.js`、`rateLimit.middleware.js` |
 | `src/lib/` | 对外部基础设施的薄封装（数据库连接、Redis 客户端）、跨领域的基础能力（Session、限流、发邮件、验证码、Cookie 读写），或某张表的纯数据访问层（Repository） | 裸名词，不带角色后缀；Repository 用 `{表对应的领域}Repository.js` | `db.js`、`redis.js`、`session.js`、`cookie.js`、`mailer.js`、`captcha.js`、`rateLimit.js`、`userRepository.js` |
-| `src/utils/` | 不依赖外部基础设施的纯函数（ID 生成、格式校验） | 裸名词，不带角色后缀 | `id.js`、`validator.js` |
+| `src/utils/` | 不依赖外部基础设施的纯函数（ID 生成、格式校验、状态判断） | 裸名词，不带角色后缀 | `id.js`、`validator.js`、`accountStatus.js` |
 | `src/config/` | 配置加载、业务规则常量、面向用户的文案模板（邮件、短信这类"会变的策略性内容"，design-principles.md 二） | 裸名词；`index.js` 作为聚合入口；文案模板用 `{渠道}Templates.js` | `env.js`、`index.js`、`emailTemplates.js` |
 | `src/scripts/` | 独立运维脚本（命令行或定时任务启动，不经过 HTTP 路由） | 裸名词，不带角色后缀 | `migrate.js` |
 | `src/` 根目录 | 应用入口 | `index.js`（Node/Express 惯例，对应 `package.json` 的 `main` 字段） | `index.js` |
@@ -234,7 +234,8 @@ helper 各司其职：`guard`（安全保险）、`reset`（逐用例清库）�
 | `src/lib/rateLimit.js` | 不变 | |
 | `src/lib/userRepository.js` | 不变 | 见 2.2；users 表纯数据访问函数集合，均支持可选事务连接参数 |
 | `src/lib/swagger.js` | 不变 | 新增，见 2.6；仅 `NODE_ENV=development` 时挂载 `/api-docs` |
-| `src/middlewares/session.middleware.js` | 不变 | |
+| `src/middlewares/session.middleware.js` | 不变 | `loadSession` 增加账号状态兜底检查（ADR-013） |
+| `src/middlewares/rateLimit.middleware.js` | 不变 | 新增；按 IP 的固定窗口限流中间件，原本内联在 `auth.route.js`，`profile.route.js` 也要用，按 2.5 抽出共用 |
 | `src/routes/index.js` | 不变 | |
 | `src/routes/auth.route.js` | 不变 | 已按 2.5 拆出 session/profile 两个领域 |
 | `src/routes/session.route.js` | 不变 | 新增，见 2.5 |
@@ -244,6 +245,7 @@ helper 各司其职：`guard`（安全保险）、`reset`（逐用例清库）�
 | `src/services/profile.service.js` | 不变 | 新增，见 2.5；`findUserById` 改从 `userRepository.js` 引入，不再依赖 auth.service.js |
 | `src/utils/id.js` | 不变 | |
 | `src/utils/validator.js` | 不变 | |
+| `src/utils/accountStatus.js` | 不变 | 新增（ADR-013）；`checkAccountStatus` 纯函数，从 `auth.service.js` 抽出，登录流程与 `loadSession` 中间件共用 |
 | `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动；按 ADR-012 CLI 分发包进 `require.main === module` 并导出函数，供测试全局 setup 复用 |
 | `src/scripts/purgeDeletedAccounts.js` | 不变 | 新增，账号注销 30 天清理任务，见 2.4 |
 
@@ -272,4 +274,4 @@ helper 各司其职：`guard`（安全保险）、`reset`（逐用例清库）�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 26 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，`src/lib/cookie.js` 是新增的 Session Cookie 读写统一入口（见 2.7），`src/app.js` 是从 `index.js` 拆出的应用本体（见 ADR-012），接口文档见 2.6，测试规范见第六节。
+**总结**：后端 28 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，`src/lib/cookie.js` 是新增的 Session Cookie 读写统一入口（见 2.7），`src/app.js` 是从 `index.js` 拆出的应用本体（见 ADR-012），接口文档见 2.6，测试规范见第六节。

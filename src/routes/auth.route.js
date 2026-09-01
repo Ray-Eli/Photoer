@@ -2,27 +2,14 @@ const express = require('express');
 const { UAParser } = require('ua-parser-js');
 const authService = require('../services/auth.service');
 const validator = require('../utils/validator');
-const config = require('../config');
-const { checkAndIncr } = require('../lib/rateLimit');
 const { verifyCaptcha } = require('../lib/captcha');
 const { setSessionCookie, clearSessionCookie } = require('../lib/cookie');
 const { requireAuth } = require('../middlewares/session.middleware');
+const { rateLimit } = require('../middlewares/rateLimit.middleware');
 
 const router = express.Router();
 
 // 验证顺序：便宜的检查在前（design-principles.md 1.2）—— IP 限流 -> 人机验证 -> 字段校验 -> 查库
-function rateLimitMiddleware(kind) {
-  const { windowMin, max } = config.rateLimit[kind];
-  return async (req, res, next) => {
-    const key = `ratelimit:${kind}:${req.ip}`;
-    const ok = await checkAndIncr(key, windowMin * 60, max);
-    if (!ok) {
-      return res.status(429).json({ error: '操作过于频繁，请稍后重试' });
-    }
-    next();
-  };
-}
-
 async function captchaMiddleware(req, res, next) {
   const ok = await verifyCaptcha(req.body.captchaToken);
   if (!ok) {
@@ -104,7 +91,7 @@ function respondAuthResult(res, result, invalidMessage) {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-router.post('/register', rateLimitMiddleware('register'), captchaMiddleware, async (req, res) => {
+router.post('/register', rateLimit('register'), captchaMiddleware, async (req, res) => {
   try {
     const { email, nickname, password } = req.body;
 
@@ -245,7 +232,7 @@ router.post('/register/verify', async (req, res) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-router.post('/login', rateLimitMiddleware('login'), captchaMiddleware, async (req, res) => {
+router.post('/login', rateLimit('login'), captchaMiddleware, async (req, res) => {
   try {
     const { account, password, remember } = req.body;
     if (!account || !password) {
@@ -302,7 +289,7 @@ router.post('/login', rateLimitMiddleware('login'), captchaMiddleware, async (re
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-router.post('/login/code', rateLimitMiddleware('login'), captchaMiddleware, async (req, res) => {
+router.post('/login/code', rateLimit('login'), captchaMiddleware, async (req, res) => {
   try {
     const { email } = req.body;
     if (!validator.isValidEmail(email)) {
@@ -424,7 +411,7 @@ router.post('/login/code/verify', async (req, res) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-router.post('/forgot-password', rateLimitMiddleware('login'), captchaMiddleware, async (req, res) => {
+router.post('/forgot-password', rateLimit('login'), captchaMiddleware, async (req, res) => {
   try {
     const { email } = req.body;
     if (!validator.isValidEmail(email)) {
@@ -619,7 +606,7 @@ router.post('/forgot-password/reset', async (req, res) => {
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-router.post('/change-email', requireAuth, rateLimitMiddleware('login'), captchaMiddleware, async (req, res) => {
+router.post('/change-email', requireAuth, rateLimit('login'), captchaMiddleware, async (req, res) => {
   try {
     const { password, newEmail } = req.body;
 

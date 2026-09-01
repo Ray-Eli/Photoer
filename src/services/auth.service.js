@@ -7,6 +7,7 @@ const { sendMail } = require('../lib/mailer');
 const { checkAndIncr } = require('../lib/rateLimit');
 const sessionLib = require('../lib/session');
 const { findUserById, findUserByUsername, updatePasswordHash, insertUser, markUserDeleted } = require('../lib/userRepository');
+const { checkAccountStatus } = require('../utils/accountStatus');
 const emailTemplates = require('../config/emailTemplates');
 
 const REGISTRATION_PREFIX = 'registration:';
@@ -96,16 +97,6 @@ async function consumeVerificationCode(prefix, token, code, maxAttempts) {
   return data;
 }
 
-// 密码/验证码登录通用状态判断（design-principles.md 1.1 例外：验证通过后可以明确告知封禁/注销状态）
-function checkAccountStatus(user) {
-  if (user.status === 'banned') {
-    return { ok: false, reason: 'BANNED', banReason: user.ban_reason };
-  }
-  if (user.status === 'deleted') {
-    return { ok: false, reason: 'DELETED' };
-  }
-  return { ok: true };
-}
 
 async function generateUniqueUsername() {
   for (let i = 0; i < 5; i++) {

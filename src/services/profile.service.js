@@ -28,6 +28,19 @@ async function isUsernameAvailable(username, requestingUserId) {
 // 改用户名：格式/保留词校验在路由层已经做过（复用 validator.js），这里只处理可用性判断、频率限制、事务替换
 // 频率限制按滚动 365 天窗口算，首次把默认用户名改成自定义名字也计入次数（ADR-007）
 async function changeUsername(userId, newUsername) {
+  const user = await findUserById(userId);
+  if (!user) {
+    const err = new Error('用户不存在');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  // 提交的用户名和当前完全相同（大小写不敏感，排序规则本就 ci）：没有实际变化，
+  // 直接返回，不消耗改名次数、不写 username_history（避免"A 改成 A"的垃圾历史记录）。ADR-007
+  if (newUsername.toLowerCase() === user.username.toLowerCase()) {
+    return { username: user.username, unchanged: true };
+  }
+
   const available = await isUsernameAvailable(newUsername, userId);
   if (!available) {
     const err = new Error('该用户名当前不可用');
@@ -42,13 +55,6 @@ async function changeUsername(userId, newUsername) {
   if (freqRows[0].cnt >= config.username.maxChangesPerYear) {
     const err = new Error('改名次数已达上限，请稍后再试');
     err.code = 'RATE_LIMITED';
-    throw err;
-  }
-
-  const user = await findUserById(userId);
-  if (!user) {
-    const err = new Error('用户不存在');
-    err.code = 'NOT_FOUND';
     throw err;
   }
 
@@ -120,6 +126,7 @@ async function changeNickname(userId, newNickname) {
 }
 
 module.exports = {
+  isUsernameAvailable,
   changeUsername,
   changeNickname,
 };

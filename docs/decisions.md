@@ -136,6 +136,7 @@ XSS 危害更大（一旦得手能做的远不止盗 token），且 CSRF 有成�
 - 冷却期 90 天，期间他人不可占用，原主人可改回
 - 改名频率限制：一年 2 次，按滚动 365 天窗口计算（不是自然年），查 `username_history.created_at`；第一次把自动生成的默认用户名改成自定义名字，同样计入这个次数——注册时生成的默认用户名本质上也是"一次占用"，不区分对待会让"首次自定义"变成不受限制的额外一次改名机会
 - 改回自己曾经使用过的旧用户名，同样计入改名次数，不作为免费的撤销操作——否则用户可以在两个自己拥有过的名字之间无限横跳，实质上绕开了一年 2 次的限制
+- **提交的用户名与当前用户名完全相同（大小写不敏感，排序规则本就 `utf8mb4_0900_ai_ci`）时，视为"没有实际变化"：直接返回成功提示，不消耗改名次数、不写 `username_history`**。理由：写一条 `A → A` 的历史记录既是垃圾数据，又会平白消耗掉用户一年 2 次的额度里的一次。前端一般应先用 `GET /api/auth/username/check`（返回 `reason: 'current'`）拦掉这种提交，这是服务端的兜底
 - 支持单条记录永久锁定（应对有影响力账号）
 - URL 使用 username，改名后旧链接 404（不跳转，不透露改名信息）
 
@@ -266,6 +267,32 @@ XSS 危害更大（一旦得手能做的远不止盗 token），且 CSRF 有成�
 - `supertest` 引入了约 50 个传递依赖（devDependency，不进生产）
 
 **关联**：测试规范见 `docs/coding-conventions.md` 六；初始化和运行见 `README.md`「测试」。
+
+---
+
+## ADR-013：账号状态检查下沉到 `loadSession` 中间件（纵深防御）
+
+**日期**：2026-09-01
+
+**背景**：`loadSession` 中间件原本只验证 Session 本身是否有效（存在、未超绝对时长），有效就把 `req.user` 填上放行。它不查账号在库里的实际状态。auth-design.md 4.3 列的强制下线场景（封禁、注销）全靠具体业务路径主动清 Session。
+
+自动化测试的探针发现：如果一个账号被标记为 `banned` / `deleted`，但它的 Session 没有被清掉，那么这些 Session 在自然过期前（最长 30 天）仍然有效——`/me` 照样返回 200。当前所有封禁/注销路径都会清 Session，所以走不到这个状态；但这是一个"靠约定维持"的不变量，以后加后台管理工具时很可能直接 `UPDATE users SET status='banned'` 而忘了清 Session。对内容平台来说，一个被封的用户还能正常用 30 天是实际风险。
+
+**决策**：在 `loadSession` 里，Session 验证通过后、填 `req.user` 之前，再查一次账号记录，复用 `checkAccountStatus()` 判断状态（判断口径和登录时完全一致，不另写一套）。发现 `banned` / `deleted`（或用户记录已不存在）时：
+
+- 调 `destroyAllSessions(userId)` 清掉该用户所有设备的 Session（封禁/注销本就该踢所有设备，见 4.3）
+- 清除当前请求的 sid Cookie，按未登录处理（`requireAuth` 随后返回 401）
+
+`checkAccountStatus` 从 `auth.service.js` 抽到 `src/utils/accountStatus.js`（纯函数，登录流程和中间件都要用，放中立的 utils 层，避免中间件依赖臃肿的 service）。
+
+**理由**：这个检查放在中间件——所有已登录请求的必经之路——是最后一道关卡，不依赖任何上游代码"记得"清 Session。成本是每个已登录请求多一次按主键查 `users` 表。
+
+**代价**：
+
+- 每个已登录请求 +1 次 `SELECT * FROM users WHERE id = ?`（走主键，成本极低）。多数需要用户信息的路由（`/me`、改资料、注销、换绑）本来就在 service 里查了一次，等于多查一次；`/sessions`、`/logout` 这类是净新增。当前规模完全可接受，将来真成瓶颈可以把这条记录挂到 `req` 上给下游复用
+- 被封用户被踢下线时看到的是"请先登录"，不是"你被封了因为 X"。封禁原因仍会在他下次尝试登录（密码校验通过后）时告知，符合 design-principles.md 1.1 例外条款，可接受
+
+**关联**：auth-design.md 4.3；`checkAccountStatus` 现位于 `src/utils/accountStatus.js`。
 
 ---
 

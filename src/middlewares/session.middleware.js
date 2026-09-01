@@ -1,6 +1,8 @@
 const config = require('../config');
 const sessionLib = require('../lib/session');
 const { clearSessionCookie } = require('../lib/cookie');
+const { findUserById } = require('../lib/userRepository');
+const { checkAccountStatus } = require('../utils/accountStatus');
 
 function parseCookies(req) {
   const header = req.headers.cookie;
@@ -52,8 +54,22 @@ async function loadSession(req, res, next) {
       return next();
     }
 
+    // 纵深防御：Session 有效不代表账号还能用。库里可能已经被封禁/注销但 Session 没被清干净
+    // （比如以后的后台工具直接改库封号却漏了清 Session）。这是最后一道关卡，不依赖
+    // "每条封禁路径都记得清 Session" 这个约定。复用 checkAccountStatus，判断口径和登录时一致。
+    const userId = Number(session.userId);
+    const account = await findUserById(userId);
+    if (!checkAccountStatus(account).ok) {
+      // 账号已失效：把该用户所有设备的 Session 一次清掉（封禁/注销本就该踢所有设备，
+      // auth-design.md 4.3），当前请求按未登录处理，requireAuth 会返回 401
+      await sessionLib.destroyAllSessions(userId);
+      clearSessionCookie(res);
+      req.sessionId = null;
+      return next();
+    }
+
     await sessionLib.touchSession(sessionId);
-    req.user = { id: Number(session.userId) };
+    req.user = { id: userId };
     next();
   } catch (err) {
     next(err);
