@@ -35,6 +35,21 @@ npm run dev
 
 > `start:staging` / `start:prod` 仅供应急手动启动。服务器上的常规启动走 pm2 / 宝塔的进程配置（由它负责设置 `NODE_ENV` 并常驻保活），不要用 npm 脚本起线上服务。
 
+### 环境 ↔ 数据库 ↔ Redis 对照
+
+每个环境用**独立的 MySQL 库和独立的 Redis db 编号**，互不干扰。以下是权威对照，`.env.<环境>` 里的 `DB_NAME` / `REDIS_DB` 必须按这张表填：
+
+| 环境 | `NODE_ENV` | 配置文件 | MySQL 库名 | Redis db |
+|---|---|---|---|---|
+| 本地开发 | `development` | `.env.development` | `Photoer` | `0` |
+| 自动化测试 | `test` | `.env.test` | 待定（搭建自动化测试时确定） | 待定 |
+| 测试服 | `staging` | `.env.staging` | `photoer_test` | `1` |
+| 正式服 | `production` | `.env.production` | `photoer_prod` | `0` |
+
+> ⚠️ **命名坑**：MySQL 库名 `photoer_test` 指的是**测试服（`staging` 环境）**，**不是自动化测试环境**。这是历史命名遗留——库名用了 `test`，但环境名是 `staging`，两者不是一回事。自动化测试环境（`NODE_ENV=test`）会用另一个库，名字还没定。
+>
+> 本地开发和正式服的 Redis db 编号都是 `0`，不冲突是因为它们在不同机器上的不同 Redis 实例。测试服和正式服若共用同一台 Redis，则靠 db 编号（`1` vs `0`）隔离。
+
 配置文件都不进 Git（`.gitignore` 忽略 `.env.*`）。仓库里只有一份模板 `.env.example`，列全所有配置项。
 
 **首次初始化本地配置**：
