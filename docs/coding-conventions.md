@@ -174,7 +174,39 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 
 ---
 
-## 六、现有文件对照表
+## 六、测试文件规范（`test/`）
+
+后端测试用 Node 内置的 `node:test` + `supertest`（HTTP 集成测试）。选型理由见 `docs/decisions.md` ADR-012。测试代码统一放仓库根目录的 `test/`，不混进 `src/`。初始化和运行方式见 `README.md`「测试」。
+
+### 6.1 目录结构
+
+| 目录 | 放什么 |
+|---|---|
+| `test/unit/` | 单元测试：纯函数 / 单模块，不碰数据库、Redis、HTTP |
+| `test/integration/` | 集成测试：走 `supertest` 打真实路由，连测试库和测试 Redis |
+| `test/helpers/` | 测试专用工具（安全保险、清理、读验证码、拿 app 等），**不是测试文件** |
+| `test/global-setup.js` | 全局 setup：安全检查 + 用 `migrations/` 建测试库表结构，跑一次 |
+
+### 6.2 命名
+
+- 测试文件一律 `{被测对象}.test.js`——`validator.test.js`、`me.test.js`、`register-flow.test.js`。集成测试按「接口」或「流程」命名，不必和某个源文件一一对应
+- `npm test` 用显式 glob `test/**/*.test.js` 圈定测试文件，所以 `test/helpers/` 里的 `.js` 不会被当成测试跑——helper 用裸名词命名（`guard.js`、`reset.js`），跟后端 `src/` 的风格一致
+
+### 6.3 几条硬性约定
+
+- **不为了好测而改生产代码**：验证码这类中间态，测试直接读 Redis（`test/helpers/codes.js`），不在生产代码里开测试后门
+- **测试库表结构只从 `migrations/` 生成**，不在测试里手写 `CREATE TABLE`——否则表结构一变测试库就跟不上
+- **每个用例前清空测试库和测试 Redis**（`beforeEach(resetAll)`），用例之间零耦合，不依赖执行顺序
+- **安全保险不能绕过**：任何直接连库/Redis 的 helper 第一步先过 `test/helpers/guard.js`
+
+### 6.4 新增功能是否要补测试
+
+- **当前（自动化测试刚起步）**：不强制。第一阶段只有基础设施 + 3 个样例用例，第二阶段补齐现有 17 个接口
+- **第二阶段完成后改为强制**：新增或修改 `src/routes/` 下的接口，必须同步加/改对应的集成测试，跟 2.6 的接口文档注释同级要求——到时回来更新本节
+
+---
+
+## 七、现有文件对照表
 
 全部文件当前路径与上述规范的核对结果，包括本来就合规、以及已按规范调整过的文件。
 
@@ -182,7 +214,8 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 
 | 当前路径 | 新规范下的路径 | 备注 |
 |---|---|---|
-| `src/index.js` | 不变 | |
+| `src/index.js` | 不变 | 按 ADR-012 瘦身为纯入口（`require('./app')` + `listen`），应用本体移到 `src/app.js` |
+| `src/app.js` | 不变 | 新增，见 ADR-012；Express 应用本体（中间件 + 路由），不 `listen`，供测试用 supertest 直接取用 |
 | `src/config/env.js` | 不变 | 路径不变；加载逻辑按 ADR-011 重写为"按 `NODE_ENV` 读 `.env.<环境>`，缺失/非法/文件不存在即报错退出" |
 | `src/config/index.js` | 不变 | |
 | `src/config/emailTemplates.js` | 不变 | 新增，邮件文案集中管理，从各 service 里的硬编码字符串抽取而来 |
@@ -205,7 +238,7 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `src/services/profile.service.js` | 不变 | 新增，见 2.5；`findUserById` 改从 `userRepository.js` 引入，不再依赖 auth.service.js |
 | `src/utils/id.js` | 不变 | |
 | `src/utils/validator.js` | 不变 | |
-| `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动 |
+| `src/scripts/migrate.js` | 不变 | 原路径 `src/migrate.js`，已按 2.4 移动；按 ADR-012 CLI 分发包进 `require.main === module` 并导出函数，供测试全局 setup 复用 |
 | `src/scripts/purgeDeletedAccounts.js` | 不变 | 新增，账号注销 30 天清理任务，见 2.4 |
 
 ### 前端（`web/src/`）
@@ -233,4 +266,4 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 | `web/src/lib/api.js` | 不变 | |
 | `web/src/lib/redirect.js` | 不变 | |
 
-**总结**：后端 25 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，`src/lib/cookie.js` 是新增的 Session Cookie 读写统一入口（见 2.7），接口文档见 2.6。
+**总结**：后端 26 个文件、前端 19 个文件全部符合规范。`migrate.js` 已移动到 `src/scripts/`，`register-form.js` 已改名为 `request-form.js`，`auth.route.js`/`auth.service.js` 已按 2.5 拆出 `session`/`profile` 两个领域，`users` 表的纯数据访问函数（含事务内的写入）已全部下沉到 `src/lib/userRepository.js`，支持可选事务连接参数，`src/scripts/purgeDeletedAccounts.js` 是新增的账号清理任务，所有邮件文案已集中到 `src/config/emailTemplates.js`，`src/lib/cookie.js` 是新增的 Session Cookie 读写统一入口（见 2.7），`src/app.js` 是从 `index.js` 拆出的应用本体（见 ADR-012），接口文档见 2.6，测试规范见第六节。

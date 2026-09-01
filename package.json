@@ -4,6 +4,7 @@
   "description": "摄影分享平台 - 分享日常瞬间与拍摄地点推荐",
   "main": "src/index.js",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "start": "cross-env NODE_ENV=development node src/index.js",
     "start:staging": "cross-env NODE_ENV=staging node src/index.js",
     "start:prod": "cross-env NODE_ENV=production node src/index.js",
@@ -13,7 +14,8 @@
     "migrate:test": "cross-env NODE_ENV=test node src/scripts/migrate.js",
     "migrate:staging": "cross-env NODE_ENV=staging node src/scripts/migrate.js",
     "migrate:prod": "cross-env NODE_ENV=production node src/scripts/migrate.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "cross-env NODE_ENV=test node --test --test-concurrency=1 --test-global-setup=./test/global-setup.js \"test/**/*.test.js\"",
+    "test:watch": "cross-env NODE_ENV=test node --test --watch --test-concurrency=1 --test-global-setup=./test/global-setup.js \"test/**/*.test.js\""
   },
   "keywords": [],
   "author": "",
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@scalar/express-api-reference": "^0.10.17",
     "cross-env": "^10.1.0",
+    "supertest": "^7.2.2",
     "swagger-jsdoc": "^6.3.0"
   }
 }

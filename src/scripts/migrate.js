@@ -169,13 +169,17 @@ async function status() {
     }
 }
 
-// 根据命令行参数决定执行什么
-const command = process.argv[2];
+// 直接用 node 运行时才按命令行参数分发；被 require（如测试的全局 setup 复用建表逻辑）时只导出函数
+if (require.main === module) {
+    const command = process.argv[2];
 
-if (command === 'rollback') {
-    rollback();
-} else if (command === 'status') {
-    status();
-} else {
-    migrate();
+    if (command === 'rollback') {
+        rollback();
+    } else if (command === 'status') {
+        status();
+    } else {
+        migrate();
+    }
 }
+
+module.exports = { migrate, rollback, status };

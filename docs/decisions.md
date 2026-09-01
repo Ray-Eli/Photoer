@@ -236,9 +236,42 @@ XSS 危害更大（一旦得手能做的远不止盗 token），且 CSRF 有成�
 
 ---
 
+## ADR-012：自动化测试用 `node:test` + `supertest`，提交前钩子用 Git 原生 hooksPath
+
+**日期**：2026-09-01
+
+**背景**：项目第一次引入自动化测试，需要同时覆盖单元测试和 HTTP 接口集成测试。查了 2026 年 Node 生态的主流方案后做选型。
+
+**决策**：
+
+| 用途 | 选定 | 
+|---|---|
+| 测试运行器 + 断言 | `node:test`（Node 内置）+ `node:assert` | 
+| HTTP 接口集成测试 | `supertest` | 
+| 提交前钩子 | Git 原生 `core.hooksPath` + `.githooks/pre-commit`，`npm install` 时由 `prepare` 脚本自动启用 | 
+
+**理由**：
+
+- **`node:test` 而非 Vitest / Jest**：本项目跑在 Node v26，`node:test` 从 v20 起就稳定，运行器 / 生命周期钩子 / 全局 setup / watch / 覆盖率全部内置，**新增 0 个运行时依赖**。Vitest 是 2026 年新项目的热门推荐，但它 ESM-first、绑一整套 Vite + esbuild 和大量传递依赖，价值集中在前端 / TS / HMR 场景；这是纯 CommonJS 的 Express 后端，用它属于过度引入。Jest 在 2026 年对 ESM 仍是 experimental、体量大、启动慢。选 `node:test` 跟本项目"依赖极简"的一贯风格一致
+- **`supertest`**：不管用哪个运行器，它都是 Express 系 HTTP 断言的事实标准，直接吃 app 对象、自动分配临时端口，是唯一必需的新依赖（devDependency）
+- **Git 原生 hooksPath 而非 husky**：husky v9 现在也很轻，但原生 `core.hooksPath` 零依赖、钩子脚本直接进 Git、`prepare` 脚本让换机器自动生效。个人项目不需要 husky 面向团队的那层一致性保证
+- **配套的两处结构改动**：① `src/index.js` 拆成 `src/app.js`（建 app）+ `src/index.js`（listen），让 supertest 能拿到不监听端口的 app——这是 Express 社区标准的 "app / server 分离"；② `src/scripts/migrate.js` 末尾的 CLI 分发包进 `if (require.main === module)` 并 `module.exports`，让测试的全局 setup 能复用建表逻辑。两处都是"加结构、不改行为"
+
+**安全保险**：测试启动时校验当前连接的数据库名是 `photoer_test`、Redis db 是 `15`（环境变量层 + 真实连接层双重检查），不符直接抛错退出。测试里有 `TRUNCATE` / `FLUSHDB` 这类破坏性操作，这道检查成本几乎为零，但能挡住"配置错误连到开发库或线上库"这种不可逆事故。
+
+**代价**：
+
+- `node:test` 的 `--test-global-setup` 目前标注 "Stability 1.0 - Early development"，API 可能微调（但功能可用，Node 26 已内置）
+- 集成测试共用一个测试库，`npm test` 用 `--test-concurrency=1` 串行跑测试文件避免互相 TRUNCATE，用例数量大幅增长后单次耗时会线性上升——届时再考虑按 worker 隔离库
+- `supertest` 引入了约 50 个传递依赖（devDependency，不进生产）
+
+**关联**：测试规范见 `docs/coding-conventions.md` 六；初始化和运行见 `README.md`「测试」。
+
+---
+
 ## 已知问题 / 技术债
 
 记录已经发现、但暂时不处理的问题，避免遗忘。
 
 - **生产环境部署方式尚未落地**：Nginx 反代、pm2 常驻、HTTPS 证书配置目前都只停留在讨论阶段，仓库里没有任何对应的部署脚本/配置文件。计划等域名 ICP 备案完成后再启动。
-- **根路径 `GET /` 返回的是开发早期留下的提示文案**：`src/index.js` 里 `GET /` 目前返回中文提示"Hello, 服务器已经跑起来了！"，这个响应在生产环境同样存在，会向访问者确认"这里有一个活着的服务"，且不够专业。等做生产环境部署配置时一并处理——可选方案是改成标准的健康检查响应（如 `{"status":"ok"}`），或直接移除让其返回 404。
+- **根路径 `GET /` 返回的是开发早期留下的提示文案**：`src/app.js` 里 `GET /` 目前返回中文提示"Hello, 服务器已经跑起来了！"，这个响应在生产环境同样存在，会向访问者确认"这里有一个活着的服务"，且不够专业。等做生产环境部署配置时一并处理——可选方案是改成标准的健康检查响应（如 `{"status":"ok"}`），或直接移除让其返回 404。

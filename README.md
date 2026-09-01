@@ -71,6 +71,33 @@ cp .env.example .env.development
 3. 执行数据库迁移：`npm run migrate`（`npm run migrate:status` 查看迁移状态，`npm run migrate:rollback` 回滚最后一次）。这三条都绑定 `development` 环境；其他环境用 `npm run migrate:test` / `migrate:staging` / `migrate:prod`，`status` / `rollback` 对非 development 环境用原始形式 `cross-env NODE_ENV=<环境> node src/scripts/migrate.js status`
 4. 按上面"技术栈"里的两条命令分别启动前后端
 
+## 测试
+
+后端用 Node 内置的 **`node:test`** 跑测试，HTTP 接口集成测试用 **`supertest`**。测试代码在 `test/`，规范见 `docs/coding-conventions.md` 六。
+
+### 首次初始化测试环境（换台机器必做）
+
+测试用**独立的库和 Redis db**，不会碰开发数据（对照表见上方「环境与配置」）：
+
+1. **手动建测试库**（仓库里没有任何脚本会自动建，换机器容易漏）：
+   ```sql
+   CREATE DATABASE photoer_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+   ```
+   字符集 / 排序规则必须是 `utf8mb4` / `utf8mb4_0900_ai_ci`——排序规则决定用户名比较不区分大小写，是设计依赖的行为。
+2. 准备配置：`cp .env.example .env.test`，填入 `NODE_ENV=test`、`COOKIE_SECURE=false`、`DB_NAME=photoer_test`、`REDIS_DB=15`，其余（账号密码 / host / 端口）跟 `.env.development` 一致。
+3. 表结构不用手动建——`npm test` 会自动用 `migrations/` 里的迁移把测试库建到最新。
+
+### 跑测试
+
+```bash
+npm test           # 跑一次全部
+npm run test:watch # 改文件自动重跑
+```
+
+- 每个用例开始前会清空测试库和测试 Redis（db 15），用例之间互不影响。
+- **安全保险**：测试启动时会校验当前连的是不是 `photoer_test` / Redis db 15，不是就直接报错退出——防止 `TRUNCATE` / `FLUSHDB` 打到开发库或线上库。
+- **提交前自动跑测试**：`.githooks/pre-commit` 会在 `git commit` 时跑 `npm test`，失败则阻止提交。`npm install` 时通过 `prepare` 脚本自动启用（`git config core.hooksPath .githooks`），换机器不用手动配。应急跳过：`git commit --no-verify`。
+
 ## 目录结构
 
 ```
@@ -78,6 +105,10 @@ Photoer/
 ├── docs/            # 产品与技术决策文档（ADR、数据库设计、命名规范等）
 ├── migrations/       # 数据库迁移文件
 ├── src/              # 后端源码（Express）
+│   ├── app.js        # Express 应用本体（中间件 + 路由），不 listen
+│   └── index.js      # 入口：拿 app 并 listen
+├── test/             # 后端测试（node:test + supertest）
+├── .githooks/        # Git 钩子（pre-commit 跑测试）
 └── web/               # 前端源码（Next.js，独立项目）
 ```
 

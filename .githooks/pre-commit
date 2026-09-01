@@ -1,0 +1,18 @@
+#!/bin/sh
+# 提交前自动跑测试，失败则阻止提交。
+# 启用方式：npm install 会通过 package.json 的 "prepare" 脚本自动执行
+#   git config core.hooksPath .githooks
+# 换台机器只要 npm install 过就生效，无需手动配置。
+#
+# 临时跳过（应急，谨慎使用）：git commit --no-verify
+
+echo "[pre-commit] 运行测试..."
+
+if ! npm test --silent; then
+  echo ""
+  echo "[pre-commit] 测试未通过，提交已中止。"
+  echo "            修复后重试，或用 git commit --no-verify 跳过（不推荐）。"
+  exit 1
+fi
+
+echo "[pre-commit] 测试通过。"
