@@ -30,25 +30,25 @@ npm run dev
 |---|---|---|---|---|---|
 | 本地开发 | `.env.development` | `development` | 开发者本机 | `npm start` | 开启（`/api-docs`） |
 | 自动化测试 | `.env.test` | `test` | 开发者本机 | `npm test`（测试框架待建） | 关闭 |
-| 测试服 | `.env.staging` | `staging` | 服务器 `/www/wwwroot/Photoer-test/` | pm2 / 宝塔进程配置（应急时 `npm run start:staging`） | 关闭 |
-| 正式服 | `.env.production` | `production` | 服务器 `/www/wwwroot/Photoer/` | pm2 / 宝塔进程配置（应急时 `npm run start:prod`） | 关闭 |
+| 测试服 | `.env.staging` | `staging` | 服务器 `/www/wwwroot/photoer-staging/` | pm2 / 宝塔进程配置（应急时 `npm run start:staging`） | 关闭 |
+| 正式服 | `.env.production` | `production` | 服务器 `/www/wwwroot/photoer-production/` | pm2 / 宝塔进程配置（应急时 `npm run start:prod`） | 关闭 |
 
 > `start:staging` / `start:prod` 仅供应急手动启动。服务器上的常规启动走 pm2 / 宝塔的进程配置（由它负责设置 `NODE_ENV` 并常驻保活），不要用 npm 脚本起线上服务。
 
 ### 环境 ↔ 数据库 ↔ Redis 对照
 
-每个环境用**独立的 MySQL 库和独立的 Redis db 编号**，互不干扰。以下是权威对照，`.env.<环境>` 里的 `DB_NAME` / `REDIS_DB` 必须按这张表填：
+每个环境用**独立的 MySQL 库和独立的 Redis db 编号**，互不干扰。库名统一按 `photoer_{环境名}` 命名，与 `NODE_ENV` 一一对应。以下是权威对照，`.env.<环境>` 里的 `DB_NAME` / `REDIS_DB` 必须按这张表填：
 
 | 环境 | `NODE_ENV` | 配置文件 | MySQL 库名 | Redis db |
 |---|---|---|---|---|
-| 本地开发 | `development` | `.env.development` | `Photoer` | `0` |
-| 自动化测试 | `test` | `.env.test` | 待定（搭建自动化测试时确定） | 待定 |
-| 测试服 | `staging` | `.env.staging` | `photoer_test` | `1` |
-| 正式服 | `production` | `.env.production` | `photoer_prod` | `0` |
+| 本地开发 | `development` | `.env.development` | `photoer_development` | `0` |
+| 自动化测试 | `test` | `.env.test` | `photoer_test` | `15` |
+| 测试服 | `staging` | `.env.staging` | `photoer_staging` | `1` |
+| 正式服 | `production` | `.env.production` | `photoer_production` | `0` |
 
-> ⚠️ **命名坑**：MySQL 库名 `photoer_test` 指的是**测试服（`staging` 环境）**，**不是自动化测试环境**。这是历史命名遗留——库名用了 `test`，但环境名是 `staging`，两者不是一回事。自动化测试环境（`NODE_ENV=test`）会用另一个库，名字还没定。
+> 所有库的字符集 / 排序规则统一为 `utf8mb4` / `utf8mb4_0900_ai_ci`——排序规则决定用户名比较不区分大小写，是设计里明确依赖的行为（见 `docs/database-schema.md`），建库时必须显式指定，不能依赖服务器默认值。
 >
-> 本地开发和正式服的 Redis db 编号都是 `0`，不冲突是因为它们在不同机器上的不同 Redis 实例。测试服和正式服若共用同一台 Redis，则靠 db 编号（`1` vs `0`）隔离。
+> 本地开发和正式服的 Redis db 编号都是 `0`，不冲突是因为它们在不同机器上的不同 Redis 实例。自动化测试用 `15`（默认 16 个 db 里的最后一个），刻意选一个远离其他环境的编号——自动化测试会频繁清库，放远一点，手滑连错时不至于冲掉有用数据。
 
 配置文件都不进 Git（`.gitignore` 忽略 `.env.*`）。仓库里只有一份模板 `.env.example`，列全所有配置项。
 

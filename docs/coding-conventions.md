@@ -159,7 +159,8 @@ Next.js App Router 对**特定文件名**和**目录即路由**有硬性规定�
 
 - **环境名**取自 `NODE_ENV`，且只有四个合法值：`development` / `test` / `staging` / `production`。`src/config/env.js` 按 `NODE_ENV` 拼出 `.env.<NODE_ENV>` 去加载，文件名后缀必须和 `NODE_ENV` 逐字符一致
 - **不使用无后缀的 `.env`**：旧方案用裸 `.env` 靠"在哪台机器上"区分环境，已废弃。现在每个环境都有明确后缀，一台机器上可以并存多个环境的配置文件而不冲突
-- **环境名 ≠ 数据库名**：环境用 `staging` / `production`，但服务器上的 MySQL 库历史命名叫 `photoer_test` / `photoer_prod`。`photoer_test` 是**测试服（`staging`）**的库，不是自动化测试（`NODE_ENV=test`）的库——两者不是一回事。完整的「环境 ↔ 库名 ↔ Redis db」对照见 `README.md`「环境与配置」。不改库名是因为改名要动数据库、配置和用户授权，风险和收益不成正比
+- **数据库、目录也按 `NODE_ENV` 对齐命名**：MySQL 库统一 `photoer_{环境名}`（`photoer_development` / `photoer_test` / `photoer_staging` / `photoer_production`），服务器部署目录统一 `photoer-{环境名}`（`photoer-staging` / `photoer-production`）。名字里的环境词跟 `NODE_ENV` 逐字符一致，不用 `prod` / `test`（指测试服）这类简写或旧叫法。完整的「环境 ↔ 库名 ↔ Redis db」对照见 `README.md`「环境与配置」
+  > 历史遗留提示：曾经测试服的库叫 `photoer_test`、正式服叫 `photoer_prod`，`photoer_test` 当时指的是**测试服**不是自动化测试。2026-09-01 已全部改名对齐，这个歧义不复存在——现在 `photoer_test` 就是自动化测试（`NODE_ENV=test`）的库
 - **`.env.example` 是唯一进 Git 的**：配置模板，列全所有配置项名称，值留空或占位，不含任何真实密钥。`.gitignore` 用 `!.env.example` 把它从 `.env.*` 的忽略规则里排除
 - 所有真实配置文件（`.env.development` 等）一律不进 Git
 
